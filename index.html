@@ -1,23 +1,25 @@
 <!DOCTYPE html>
 <html lang="fi"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<title>Maastokartoitus V1.9</title>
+<title>Maastokartoitus V1.10</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.css">
 <style>
 html,body{margin:0;height:100%;font-family:system-ui,sans-serif;overflow:hidden}
 #map{position:absolute;inset:0}
-#top{position:absolute;top:0;left:0;right:0;display:flex;gap:4px;padding:4px;z-index:5}#top button{min-width:44px}
+#top{position:absolute;top:0;left:0;right:0;display:flex;gap:4px;padding:4px;z-index:5}#top button{min-width:48px}
+#dist{align-self:center;font:700 14px system-ui;background:#fffd;padding:6px 7px;border-radius:6px;white-space:nowrap}
 #top input{flex:1;min-width:0;font-size:14px;padding:6px;border:1px solid #888;border-radius:8px}
-button{font:600 12px system-ui;border:1.5px solid #333;background:#fff;border-radius:8px;min-height:34px;padding:0 4px}
+button{font:600 14px system-ui;border:1.5px solid #333;background:#fff;border-radius:8px;min-height:40px;padding:0 4px}
 button.on{color:#fff;background:#222}
 #rec.on{background:#d62828;border-color:#d62828}
-#panel{position:absolute;right:4px;top:92px;bottom:20px;width:54px;display:flex;flex-direction:column;justify-content:center;gap:3px;z-index:5;overflow-y:auto}
-#panel button{width:100%;min-height:32px;flex:0 0 auto;font-size:11px;padding:0}
+#panel{position:absolute;right:4px;top:100px;bottom:20px;width:58px;display:flex;flex-direction:column;justify-content:center;gap:3px;z-index:5;overflow-y:auto}
+#panel button{width:100%;min-height:36px;max-height:54px;flex:1 1 0;font-size:14px;padding:0}
 #panel button[data-s]{background:var(--c);color:var(--t,#fff);border-color:var(--c);opacity:.55}
 #panel button[data-s].on{opacity:1;border-color:#000;box-shadow:0 0 0 2px #fff inset}
 #wet.on{background:#1f6fd1;border-color:#1f6fd1}#veg.on{background:#2e9e44;border-color:#2e9e44}
-#follow{position:absolute;left:6px;bottom:20px;z-index:5;width:40px}
-#acc{position:absolute;left:6px;top:46px;font:11px system-ui;background:#fffd;padding:1px 6px;border-radius:4px;z-index:5}
+#follow{position:absolute;left:6px;bottom:72px;z-index:5;width:46px;height:46px;font-size:20px}
+#fs{position:absolute;left:6px;bottom:20px;z-index:5;width:46px;height:46px;font-size:20px}
+#acc{position:absolute;left:6px;top:56px;font:11px system-ui;background:#fffd;padding:1px 6px;border-radius:4px;z-index:5}
 #toast{position:absolute;left:50%;top:70px;transform:translateX(-50%);background:#000c;color:#fff;padding:8px 14px;border-radius:8px;z-index:9;display:none}
 dialog{border-radius:12px;max-width:340px;width:90%}
 dialog button,dialog input{display:block;width:100%;margin:6px 0;box-sizing:border-box}
@@ -25,8 +27,8 @@ dialog input{font-size:16px;padding:8px}
 .poi{font-size:26px;filter:drop-shadow(0 0 2px #fff)}
 </style></head><body>
 <div id="map"></div>
-<div id="top"><input id="name" placeholder="Projektin nimi"><button id="rec">● REC</button><button id="menuBtn">☰</button></div>
-<button id="follow" class="on">◎</button>
+<div id="top"><input id="name" placeholder="Projektin nimi"><span id="dist">0.00 km</span><button id="rec">● REC</button><button id="menuBtn">☰</button></div>
+<button id="follow" class="on">◎</button><button id="fs">⛶</button>
 <div id="panel">
  <button id="hwPath" class="on">PATH</button><button id="hwTrack">TRACK</button>
  <button data-s="0">S0</button><button data-s="1">S1</button>
@@ -46,7 +48,7 @@ dialog input{font-size:16px;padding:8px}
  <input id="key" placeholder="MML API-avain">
  <label><input type="checkbox" id="swap" style="display:inline;width:auto"> Vaihda WET/VEG puolet</label>
  <button id="clearAll">Uusi projekti (tyhjennä)</button>
- <div style="text-align:center;font:11px system-ui;color:#666">Maastokartoitus V1.9</div>
+ <div style="text-align:center;font:11px system-ui;color:#666">Maastokartoitus V1.10</div>
  <button id="close">Sulje</button>
 </dialog>
 <input type="file" id="file" accept=".geojson,.json" hidden>
@@ -59,9 +61,13 @@ const DASH={'0':[8,1],'1':[6,1.5],'2':[4,2],'3':[3,3],'4':[1.5,4],'':[1,0]};
 const W={path:0.3,track:3};
 document.querySelectorAll('[data-s]').forEach(b=>{b.style.setProperty('--c',SC[b.dataset.s]);if(['1','2','4'].includes(b.dataset.s))b.style.setProperty('--t','#000')});
 let S;
-function fresh(){S={name:'',rec:false,hw:'path',scale:'',wet:false,veg:false,track:[],trail:[],wetS:[],vegS:[],pois:[],last:null}}
+function fresh(){S={name:'',rec:false,hw:'path',scale:'',wet:false,veg:false,track:[],trail:[],wetS:[],vegS:[],pois:[],last:null,dist:0,lastD:null}}
 fresh();
 const cur=a=>a[a.length-1];
+function hav(a,b){const R=6371000,r=Math.PI/180,dl=(b[1]-a[1])*r,dn=(b[0]-a[0])*r,x=Math.sin(dl/2)**2+Math.cos(a[1]*r)*Math.cos(b[1]*r)*Math.sin(dn/2)**2;return 2*R*Math.asin(Math.sqrt(x))}
+function addDist(c,brk){if(brk||!S.lastD){S.lastD=c;return}const d=hav(S.lastD,c);if(d>=3){S.dist+=d;S.lastD=c}}
+function showDist(){$('dist').textContent=((S.dist||0)/1000).toFixed(2)+' km'}
+const GAP=15000;
 const toast=(t,ms=1800)=>{const e=$('toast');e.textContent=t;e.style.display='block';clearTimeout(toast.t);toast.t=setTimeout(()=>e.style.display='none',ms)};
 
 // --- Map ---
@@ -102,8 +108,10 @@ function applySides(){ // positive offset = right
 }
 const line=(c,p)=>({type:'Feature',properties:p,geometry:{type:'LineString',coordinates:c}});
 function render(){
+ showDist();
  if(!map.getSource('trail'))return;
- map.getSource('gps').setData({type:'FeatureCollection',features:S.track.length>1?[line(S.track.map(p=>[p.lon,p.lat]),{})]:[]});
+ const gs=[];let cs=[];S.track.forEach(p=>{if(p.g&&cs.length){gs.push(cs);cs=[]}cs.push([p.lon,p.lat])});gs.push(cs);
+ map.getSource('gps').setData({type:'FeatureCollection',features:gs.filter(x=>x.length>1).map(x=>line(x,{}))});
  map.getSource('trail').setData({type:'FeatureCollection',features:S.trail.filter(s=>s.c.length>1).map(s=>line(s.c,{sc:s.scale,wm:s.hw==='track'?W.track/W.path/4:1,hw:s.hw}))});
  map.getSource('wet').setData({type:'FeatureCollection',features:S.wetS.filter(s=>s.c.length>1).map(s=>line(s.c,{}))});
  map.getSource('veg').setData({type:'FeatureCollection',features:S.vegS.filter(s=>s.c.length>1).map(s=>line(s.c,{}))});
@@ -128,9 +136,11 @@ navigator.geolocation.watchPosition(p=>{
  dot.setLngLat(c);if(!dotOn){dot.addTo(map);dotOn=true}
  if(follow)map.easeTo({center:c,zoom:first?Math.max(map.getZoom(),16):map.getZoom(),duration:500});first=false;
  if(S.rec){
-  S.track.push({lon:c[0],lat:c[1],ele:p.coords.altitude,t:p.timestamp});
-  cur(S.trail).c.push(c);
-  if(S.wet)cur(S.wetS).c.push(c);if(S.veg)cur(S.vegS).c.push(c);
+  const dt=S.track.length?p.timestamp-cur(S.track).t:0,gap=dt>GAP;
+  S.track.push({lon:c[0],lat:c[1],ele:p.coords.altitude,t:p.timestamp,g:gap||undefined});
+  if(gap){startTrail();if(S.wet)S.wetS.push({c:[c]});if(S.veg)S.vegS.push({c:[c]});toast('Paikannus katkesi '+Math.round(dt/1000)+' s, jäljessä on katkos',4000)}
+  else{cur(S.trail).c.push(c);if(S.wet)cur(S.wetS).c.push(c);if(S.veg)cur(S.vegS).c.push(c)}
+  addDist(c,gap);
   render();
  }
 },gpsErr,{enableHighAccuracy:true,maximumAge:0,timeout:20000});
@@ -144,7 +154,7 @@ function startTrail(){S.trail.push({hw:S.hw,scale:S.scale,c:S.last?[S.last]:[]})
 $('rec').onclick=async()=>{
  if(!S.rec){
   if(!S.last)return toast('Odotetaan GPS-paikannusta…');
-  S.rec=true;$('rec').classList.add('on');$('rec').textContent='■ STOP';
+  S.rec=true;S.lastD=null;$('rec').classList.add('on');$('rec').textContent='■ STOP';
   if(!$('name').value)$('name').value=stamp();
   startTrail();if(S.wet)S.wetS.push({c:[S.last]});if(S.veg)S.vegS.push({c:[S.last]});
   try{wake=await navigator.wakeLock.request('screen')}catch(e){}
@@ -161,6 +171,8 @@ $('poiTree').onclick=()=>{
  if(!S.last)return toast('Ei GPS-paikkaa');
  S.pois.push({c:S.last,type:'fallen_tree',t:Date.now()});drawMarkers();render();toast('🪵 Tallennettu');navigator.vibrate&&navigator.vibrate(60)};
 
+$('fs').onclick=async()=>{try{if(document.fullscreenElement)await document.exitFullscreen();else await document.documentElement.requestFullscreen()}catch(e){toast('Kokoruutu ei ole tuettu tässä selaimessa')}setTimeout(()=>map.resize(),300)};
+document.addEventListener('visibilitychange',async()=>{if(document.visibilityState==='visible'&&S.rec){try{wake=await navigator.wakeLock.request('screen')}catch(e){}}});
 // --- Menu / settings ---
 $('menuBtn').onclick=()=>$('menu').showModal();$('close').onclick=()=>$('menu').close();
 $('src').onchange=e=>{localStorage.setItem('src',e.target.value);location.reload()};
@@ -177,7 +189,7 @@ $('expGpx').onclick=()=>{
  const n=esc($('name').value||fname());const seg=(c,name,desc)=>`<trk><name>${esc(name)}</name><desc>${esc(desc)}</desc><trkseg>${c.map(p=>`<trkpt lat="${p[1]}" lon="${p[0]}"/>`).join('')}</trkseg></trk>`;
  let x=`<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="Maastokartoitus" xmlns="http://www.topografix.com/GPX/1/1"><metadata><name>${n}</name></metadata>\n`;
  S.pois.forEach(p=>x+=`<wpt lat="${p.c[1]}" lon="${p.c[0]}"><time>${new Date(p.t).toISOString()}</time><name>Kaatunut puu</name><type>${p.type}</type></wpt>\n`);
- x+=`<trk><name>${n}</name><trkseg>${S.track.map(p=>`<trkpt lat="${p.lat}" lon="${p.lon}">${p.ele!=null?`<ele>${p.ele}</ele>`:''}<time>${new Date(p.t).toISOString()}</time></trkpt>`).join('')}</trkseg></trk>\n`;
+ x+=`<trk><name>${n}</name><trkseg>${S.track.map(p=>(p.g?'</trkseg><trkseg>':'')+`<trkpt lat="${p.lat}" lon="${p.lon}">${p.ele!=null?`<ele>${p.ele}</ele>`:''}<time>${new Date(p.t).toISOString()}</time></trkpt>`).join('')}</trkseg></trk>\n`;
  S.trail.forEach((s,i)=>s.c.length>1&&(x+=seg(s.c,`${n} polku ${i+1}`,tagsOf(s))+'\n'));
  S.wetS.forEach((s,i)=>s.c.length>1&&(x+=seg(s.c,`${n} wet ${i+1}`,'wet=yes')+'\n'));
  S.vegS.forEach((s,i)=>s.c.length>1&&(x+=seg(s.c,`${n} vegetation ${i+1}`,'vegetation (kasvillisuus)')+'\n'));
@@ -188,7 +200,7 @@ function geo(){
  S.wetS.forEach(s=>s.c.length>1&&f.push(line(s.c,{kind:'wet',wet:'yes'})));
  S.vegS.forEach(s=>s.c.length>1&&f.push(line(s.c,{kind:'veg'})));
  S.pois.forEach(p=>f.push({type:'Feature',properties:{kind:'poi',type:p.type,time:new Date(p.t).toISOString()},geometry:{type:'Point',coordinates:p.c}}));
- f.push(line(S.track.map(p=>[p.lon,p.lat]),{kind:'gps',times:S.track.map(p=>p.t)}));
+ f.push(line(S.track.map(p=>[p.lon,p.lat]),{kind:'gps',times:S.track.map(p=>p.t),gaps:S.track.map((p,i)=>p.g?i:-1).filter(i=>i>=0)}));
  return {type:'FeatureCollection',name:$('name').value,features:f};
 }
 $('expJson').onclick=()=>{dl(new Blob([JSON.stringify(geo())],{type:'application/geo+json'}),fname()+'.geojson');$('menu').close()};
@@ -202,7 +214,8 @@ $('file').onchange=async e=>{
   if(p.kind==='trail')S.trail.push({hw:p.highway,scale:p['mtb:scale']??'',c});
   else if(p.kind==='wet')S.wetS.push({c});else if(p.kind==='veg')S.vegS.push({c});
   else if(p.kind==='poi')S.pois.push({c,type:p.type,t:Date.parse(p.time)});
-  else if(p.kind==='gps')S.track=c.map((q,i)=>({lon:q[0],lat:q[1],ele:null,t:(p.times||[])[i]||0}))}
+  else if(p.kind==='gps')S.track=c.map((q,i)=>({lon:q[0],lat:q[1],ele:null,t:(p.times||[])[i]||0,g:(p.gaps||[]).includes(i)||undefined}))}
+ S.dist=0;S.lastD=null;S.track.forEach(q=>addDist([q.lon,q.lat],q.g));
  drawMarkers();render();$('menu').close();
  if(S.track.length)map.fitBounds(S.track.reduce((b,p)=>b.extend([p.lon,p.lat]),new maplibregl.LngLatBounds()),{padding:40});
  e.target.value='';toast('Projekti avattu');
