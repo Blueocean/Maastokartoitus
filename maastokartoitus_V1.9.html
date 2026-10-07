@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="fi"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Maastokartoitus V1.9</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.css">
+<style>
+html,body{margin:0;height:100%;font-family:system-ui,sans-serif;overflow:hidden}
+#map{position:absolute;inset:0}
+#top{position:absolute;top:0;left:0;right:0;display:flex;gap:4px;padding:4px;z-index:5}#top button{min-width:44px}
+#top input{flex:1;min-width:0;font-size:14px;padding:6px;border:1px solid #888;border-radius:8px}
+button{font:600 12px system-ui;border:1.5px solid #333;background:#fff;border-radius:8px;min-height:34px;padding:0 4px}
+button.on{color:#fff;background:#222}
+#rec.on{background:#d62828;border-color:#d62828}
+#panel{position:absolute;right:4px;top:92px;bottom:20px;width:54px;display:flex;flex-direction:column;justify-content:center;gap:3px;z-index:5;overflow-y:auto}
+#panel button{width:100%;min-height:32px;flex:0 0 auto;font-size:11px;padding:0}
+#panel button[data-s]{background:var(--c);color:var(--t,#fff);border-color:var(--c);opacity:.55}
+#panel button[data-s].on{opacity:1;border-color:#000;box-shadow:0 0 0 2px #fff inset}
+#wet.on{background:#1f6fd1;border-color:#1f6fd1}#veg.on{background:#2e9e44;border-color:#2e9e44}
+#follow{position:absolute;left:6px;bottom:20px;z-index:5;width:40px}
+#acc{position:absolute;left:6px;top:46px;font:11px system-ui;background:#fffd;padding:1px 6px;border-radius:4px;z-index:5}
+#toast{position:absolute;left:50%;top:70px;transform:translateX(-50%);background:#000c;color:#fff;padding:8px 14px;border-radius:8px;z-index:9;display:none}
+dialog{border-radius:12px;max-width:340px;width:90%}
+dialog button,dialog input{display:block;width:100%;margin:6px 0;box-sizing:border-box}
+dialog input{font-size:16px;padding:8px}
+.poi{font-size:26px;filter:drop-shadow(0 0 2px #fff)}
+</style></head><body>
+<div id="map"></div>
+<div id="top"><input id="name" placeholder="Projektin nimi"><button id="rec">● REC</button><button id="menuBtn">☰</button></div>
+<button id="follow" class="on">◎</button>
+<div id="panel">
+ <button id="hwPath" class="on">PATH</button><button id="hwTrack">TRACK</button>
+ <button data-s="0">S0</button><button data-s="1">S1</button>
+ <button data-s="2">S2</button><button data-s="3">S3</button>
+ <button data-s="4">S4</button><button data-s="" class="on">S–</button>
+ <button id="wet">WET</button><button id="veg">VEG</button>
+ <button id="poiTree" class="wide">🪵</button>
+</div>
+<div id="acc">GPS: haetaan…</div>
+<div id="toast"></div>
+<dialog id="menu">
+ <button id="expGpx">Tallenna GPX</button>
+ <button id="expJson">Tallenna projekti (GeoJSON)</button>
+ <button id="expPng">Tallenna PNG</button>
+ <button id="open">Avaa projekti (GeoJSON)</button>
+ <select id="src" style="font-size:16px;padding:8px;width:100%"><option value="mml">MML maastokartta (API-avain)</option><option value="mmltausta">MML taustakartta (API-avain)</option><option value="kapsiwms">Kapsi: MML peruskartta (WMS, kokeilu)</option><option value="kapsitausta">Kapsi: MML taustakartta (WMS, kokeilu)</option><option value="osm">OpenStreetMap</option></select>
+ <input id="key" placeholder="MML API-avain">
+ <label><input type="checkbox" id="swap" style="display:inline;width:auto"> Vaihda WET/VEG puolet</label>
+ <button id="clearAll">Uusi projekti (tyhjennä)</button>
+ <div style="text-align:center;font:11px system-ui;color:#666">Maastokartoitus V1.9</div>
+ <button id="close">Sulje</button>
+</dialog>
+<input type="file" id="file" accept=".geojson,.json" hidden>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.js"></script>
+<script>
+const $=id=>document.getElementById(id);
+const LS=k=>localStorage.getItem(k);
+const SC={'0':'#2e9e44','1':'#f2c200','2':'#f28c00','3':'#d62828','4':'#c08bf0','':'#666666'};
+const DASH={'0':[8,1],'1':[6,1.5],'2':[4,2],'3':[3,3],'4':[1.5,4],'':[1,0]};
+const W={path:0.3,track:3};
+document.querySelectorAll('[data-s]').forEach(b=>{b.style.setProperty('--c',SC[b.dataset.s]);if(['1','2','4'].includes(b.dataset.s))b.style.setProperty('--t','#000')});
+let S;
+function fresh(){S={name:'',rec:false,hw:'path',scale:'',wet:false,veg:false,track:[],trail:[],wetS:[],vegS:[],pois:[],last:null}}
+fresh();
+const cur=a=>a[a.length-1];
+const toast=(t,ms=1800)=>{const e=$('toast');e.textContent=t;e.style.display='block';clearTimeout(toast.t);toast.t=setTimeout(()=>e.style.display='none',ms)};
+
+// --- Map ---
+const key=LS('mmlkey')||'';$('key').value=key;$('swap').checked=LS('swap')==='1';
+const SRC={
+ mml:[`https://avoin-karttakuva.maanmittauslaitos.fi/avoin/wmts/1.0.0/maastokartta/default/WGS84_Pseudo-Mercator/{z}/{y}/{x}.png?api-key=${key}`,'© Maanmittauslaitos (CC BY 4.0)'],
+ mmltausta:[`https://avoin-karttakuva.maanmittauslaitos.fi/avoin/wmts/1.0.0/taustakartta/default/WGS84_Pseudo-Mercator/{z}/{y}/{x}.png?api-key=${key}`,'© Maanmittauslaitos (CC BY 4.0)'],
+ kapsiwms:['https://tiles.kartat.kapsi.fi/peruskartta?FORMAT=image/jpeg&VERSION=1.1.1&SERVICE=WMS&REQUEST=GetMap&STYLES=&SRS=EPSG:3857&WIDTH=256&HEIGHT=256&BBOX={bbox-epsg-3857}','© Maanmittauslaitos via Kapsi ry',null,19],
+ kapsitausta:['https://tiles.kartat.kapsi.fi/taustakartta?FORMAT=image/jpeg&VERSION=1.1.1&SERVICE=WMS&REQUEST=GetMap&STYLES=&SRS=EPSG:3857&WIDTH=256&HEIGHT=256&BBOX={bbox-epsg-3857}','© Maanmittauslaitos via Kapsi ry',null,19],
+ osm:['https://tile.openstreetmap.org/{z}/{x}/{y}.png','© OpenStreetMap']};
+let src=LS('src');if(!SRC[src])src=key?'mml':'kapsiwms';
+if((src==='mml'||src==='mmltausta')&&!key){src='kapsiwms';setTimeout(()=>toast('MML-kartta vaatii API-avaimen (valikko). Käytetään Kapsia.',6000),500)}
+$('src').value=src;
+const [tiles,attr,scheme,maxz]=SRC[src];
+const map=new maplibregl.Map({container:'map',center:[25.0,60.2],zoom:13,attributionControl:{compact:true},
+ canvasContextAttributes:{preserveDrawingBuffer:true},
+ style:{version:8,sources:{base:{type:'raster',tiles:[tiles],tileSize:256,maxzoom:maxz||17,scheme:scheme||'xyz',attribution:attr}},layers:[{id:'base',type:'raster',source:'base'}]}});
+const empty={type:'FeatureCollection',features:[]};
+map.on('load',()=>{
+ ['gps','trail','wet','veg','poi'].forEach(s=>map.addSource(s,{type:'geojson',data:empty}));
+ map.addLayer({id:'gps',type:'line',source:'gps',paint:{'line-color':'#666','line-width':1,'line-opacity':.6}});
+ for(const s of Object.keys(SC)){
+  map.addLayer({id:'trail'+s,type:'line',source:'trail',filter:['==',['get','sc'],s],layout:{'line-cap':'butt'},
+   paint:{'line-color':SC[s],'line-dasharray':DASH[s],
+    'line-width':['interpolate',['linear'],['zoom'],12,['*',1.5,['get','wm']],20,['*',4,['get','wm']]]}});
+ }
+ const off=['interpolate',['linear'],['zoom'],12,4,20,14];
+ const side=m=>["*",m,1];
+ map.addLayer({id:'wet',type:'line',source:'wet',layout:{'line-cap':'round'},paint:{'line-color':'#1f6fd1','line-width':3.5,'line-dasharray':[0.1,2],'line-offset':off}});
+ map.addLayer({id:'veg',type:'line',source:'veg',layout:{'line-cap':'round'},paint:{'line-color':'#1b8a2f','line-width':3.5,'line-dasharray':[0.1,2],'line-offset':off}});
+ map.addLayer({id:'poi',type:'circle',source:'poi',paint:{'circle-radius':7,'circle-color':'#f57c00','circle-stroke-color':'#fff','circle-stroke-width':2}});
+ applySides();render();
+});
+function applySides(){ // positive offset = right
+ const sw=$('swap').checked;
+ const o=['interpolate',['linear'],['zoom'],12,4,20,14],n=['interpolate',['linear'],['zoom'],12,-4,20,-14];
+ map.setPaintProperty('veg','line-offset',sw?n:o);map.setPaintProperty('wet','line-offset',sw?o:n);
+}
+const line=(c,p)=>({type:'Feature',properties:p,geometry:{type:'LineString',coordinates:c}});
+function render(){
+ if(!map.getSource('trail'))return;
+ map.getSource('gps').setData({type:'FeatureCollection',features:S.track.length>1?[line(S.track.map(p=>[p.lon,p.lat]),{})]:[]});
+ map.getSource('trail').setData({type:'FeatureCollection',features:S.trail.filter(s=>s.c.length>1).map(s=>line(s.c,{sc:s.scale,wm:s.hw==='track'?W.track/W.path/4:1,hw:s.hw}))});
+ map.getSource('wet').setData({type:'FeatureCollection',features:S.wetS.filter(s=>s.c.length>1).map(s=>line(s.c,{}))});
+ map.getSource('veg').setData({type:'FeatureCollection',features:S.vegS.filter(s=>s.c.length>1).map(s=>line(s.c,{}))});
+ map.getSource('poi').setData({type:'FeatureCollection',features:S.pois.map(p=>({type:'Feature',properties:{type:p.type},geometry:{type:'Point',coordinates:p.c}}))});
+ save();
+}
+// track width multiplier: path=1 -> 1.5..4px, track=2.5x -> ~3.7..10px
+let markers=[];
+function drawMarkers(){markers.forEach(m=>m.remove());markers=S.pois.map(p=>{const e=document.createElement('div');e.className='poi';e.textContent='🪵';return new maplibregl.Marker({element:e}).setLngLat(p.c).addTo(map)})}
+
+// --- GPS ---
+const dotEl=document.createElement('div');dotEl.style.cssText='width:18px;height:18px;border-radius:50%;background:#1a73e8;border:3px solid #fff;box-shadow:0 0 4px #000';
+const dot=new maplibregl.Marker({element:dotEl});let dotOn=false,follow=true,first=true;
+function gpsErr(e){
+ const m=e.code===1?'Sijaintilupa estetty. Chrome: ⋮ → Asetukset → Sivustojen asetukset → Sijainti → salli tälle sivulle. Tarkista myös Androidin asetuksista, että Chromella on sijaintilupa ja sijainti on päällä.'
+  :e.code===2?'Paikannus ei onnistu (sijainti pois päältä tai ei signaalia).':'Paikannus aikakatkaistiin, yritetään uudelleen…';
+ $('acc').textContent='GPS: ei sijaintia – napauta yrittääksesi uudelleen';toast(m,9000)}
+$('acc').onclick=()=>navigator.geolocation.getCurrentPosition(()=>location.reload(),gpsErr,{enableHighAccuracy:true});
+if(!window.isSecureContext||location.protocol==='file:'||location.protocol==='content:')toast('Sivu on avattu tiedostona eikä HTTPS-osoitteesta, joten paikannus ei toimi. Julkaise sivu esim. GitHub Pagesissa.',12000);
+navigator.geolocation.watchPosition(p=>{
+ const c=[p.coords.longitude,p.coords.latitude];S.last=c;$('acc').textContent='GPS ±'+Math.round(p.coords.accuracy)+' m';
+ dot.setLngLat(c);if(!dotOn){dot.addTo(map);dotOn=true}
+ if(follow)map.easeTo({center:c,zoom:first?Math.max(map.getZoom(),16):map.getZoom(),duration:500});first=false;
+ if(S.rec){
+  S.track.push({lon:c[0],lat:c[1],ele:p.coords.altitude,t:p.timestamp});
+  cur(S.trail).c.push(c);
+  if(S.wet)cur(S.wetS).c.push(c);if(S.veg)cur(S.vegS).c.push(c);
+  render();
+ }
+},gpsErr,{enableHighAccuracy:true,maximumAge:0,timeout:20000});
+map.on('dragstart',()=>{follow=false;$('follow').classList.remove('on')});
+$('follow').onclick=()=>{follow=true;$('follow').classList.add('on');if(S.last)map.easeTo({center:S.last})};
+
+// --- Controls ---
+let wake=null;
+const stamp=()=>{const d=new Date(),p=n=>String(n).padStart(2,'0');return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}_${p(d.getHours())}-${p(d.getMinutes())}`};
+function startTrail(){S.trail.push({hw:S.hw,scale:S.scale,c:S.last?[S.last]:[]})}
+$('rec').onclick=async()=>{
+ if(!S.rec){
+  if(!S.last)return toast('Odotetaan GPS-paikannusta…');
+  S.rec=true;$('rec').classList.add('on');$('rec').textContent='■ STOP';
+  if(!$('name').value)$('name').value=stamp();
+  startTrail();if(S.wet)S.wetS.push({c:[S.last]});if(S.veg)S.vegS.push({c:[S.last]});
+  try{wake=await navigator.wakeLock.request('screen')}catch(e){}
+ }else{S.rec=false;$('rec').classList.remove('on');$('rec').textContent='● REC';if(wake)wake.release();toast('Tallennus päättyi')}
+ render();
+};
+function setHw(h){S.hw=h;$('hwPath').classList.toggle('on',h==='path');$('hwTrack').classList.toggle('on',h==='track');if(S.rec)startTrail()}
+$('hwPath').onclick=()=>setHw('path');$('hwTrack').onclick=()=>setHw('track');
+document.querySelectorAll('[data-s]').forEach(b=>b.onclick=()=>{
+ S.scale=b.dataset.s;document.querySelectorAll('[data-s]').forEach(x=>x.classList.toggle('on',x===b));if(S.rec)startTrail()});
+function tog(k,arr,btn){$(btn).onclick=()=>{S[k]=!S[k];$(btn).classList.toggle('on',S[k]);if(S[k]&&S.rec&&S.last)S[arr].push({c:[S.last]})}}
+tog('wet','wetS','wet');tog('veg','vegS','veg');
+$('poiTree').onclick=()=>{
+ if(!S.last)return toast('Ei GPS-paikkaa');
+ S.pois.push({c:S.last,type:'fallen_tree',t:Date.now()});drawMarkers();render();toast('🪵 Tallennettu');navigator.vibrate&&navigator.vibrate(60)};
+
+// --- Menu / settings ---
+$('menuBtn').onclick=()=>$('menu').showModal();$('close').onclick=()=>$('menu').close();
+$('src').onchange=e=>{localStorage.setItem('src',e.target.value);location.reload()};
+$('key').onchange=e=>{localStorage.setItem('mmlkey',e.target.value.trim());location.reload()};
+$('swap').onchange=()=>{localStorage.setItem('swap',$('swap').checked?'1':'0');applySides()};
+$('clearAll').onclick=()=>{if(confirm('Tyhjennetäänkö nykyinen projekti?')){fresh();$('name').value='';$('rec').classList.remove('on');$('rec').textContent='● REC';['wet','veg'].forEach(b=>$(b).classList.remove('on'));drawMarkers();render();$('menu').close()}};
+
+// --- Export ---
+const fname=()=>(($('name').value||stamp()).replace(/[äå]/gi,'a').replace(/ö/gi,'o').replace(/[^A-Za-z0-9_-]+/g,'-'));
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function dl(blob,name){const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),5000)}
+function tagsOf(s){return `highway=${s.hw}; width=${W[s.hw]}`+(s.scale!==''?`; mtb:scale=${s.scale}`:'')}
+$('expGpx').onclick=()=>{
+ const n=esc($('name').value||fname());const seg=(c,name,desc)=>`<trk><name>${esc(name)}</name><desc>${esc(desc)}</desc><trkseg>${c.map(p=>`<trkpt lat="${p[1]}" lon="${p[0]}"/>`).join('')}</trkseg></trk>`;
+ let x=`<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="Maastokartoitus" xmlns="http://www.topografix.com/GPX/1/1"><metadata><name>${n}</name></metadata>\n`;
+ S.pois.forEach(p=>x+=`<wpt lat="${p.c[1]}" lon="${p.c[0]}"><time>${new Date(p.t).toISOString()}</time><name>Kaatunut puu</name><type>${p.type}</type></wpt>\n`);
+ x+=`<trk><name>${n}</name><trkseg>${S.track.map(p=>`<trkpt lat="${p.lat}" lon="${p.lon}">${p.ele!=null?`<ele>${p.ele}</ele>`:''}<time>${new Date(p.t).toISOString()}</time></trkpt>`).join('')}</trkseg></trk>\n`;
+ S.trail.forEach((s,i)=>s.c.length>1&&(x+=seg(s.c,`${n} polku ${i+1}`,tagsOf(s))+'\n'));
+ S.wetS.forEach((s,i)=>s.c.length>1&&(x+=seg(s.c,`${n} wet ${i+1}`,'wet=yes')+'\n'));
+ S.vegS.forEach((s,i)=>s.c.length>1&&(x+=seg(s.c,`${n} vegetation ${i+1}`,'vegetation (kasvillisuus)')+'\n'));
+ dl(new Blob([x+'</gpx>'],{type:'application/gpx+xml'}),fname()+'.gpx');$('menu').close()};
+function geo(){
+ const f=[];
+ S.trail.forEach(s=>s.c.length>1&&f.push(line(s.c,{kind:'trail',highway:s.hw,width:W[s.hw],...(s.scale!==''?{'mtb:scale':s.scale}:{})})));
+ S.wetS.forEach(s=>s.c.length>1&&f.push(line(s.c,{kind:'wet',wet:'yes'})));
+ S.vegS.forEach(s=>s.c.length>1&&f.push(line(s.c,{kind:'veg'})));
+ S.pois.forEach(p=>f.push({type:'Feature',properties:{kind:'poi',type:p.type,time:new Date(p.t).toISOString()},geometry:{type:'Point',coordinates:p.c}}));
+ f.push(line(S.track.map(p=>[p.lon,p.lat]),{kind:'gps',times:S.track.map(p=>p.t)}));
+ return {type:'FeatureCollection',name:$('name').value,features:f};
+}
+$('expJson').onclick=()=>{dl(new Blob([JSON.stringify(geo())],{type:'application/geo+json'}),fname()+'.geojson');$('menu').close()};
+$('expPng').onclick=()=>{$('menu').close();map.once('render',()=>map.getCanvas().toBlob(b=>dl(b,fname()+'.png')));map.triggerRepaint()};
+
+// --- Import ---
+$('open').onclick=()=>$('file').click();
+$('file').onchange=async e=>{
+ const g=JSON.parse(await e.target.files[0].text());fresh();$('name').value=g.name||'';
+ for(const f of g.features){const p=f.properties,c=f.geometry.coordinates;
+  if(p.kind==='trail')S.trail.push({hw:p.highway,scale:p['mtb:scale']??'',c});
+  else if(p.kind==='wet')S.wetS.push({c});else if(p.kind==='veg')S.vegS.push({c});
+  else if(p.kind==='poi')S.pois.push({c,type:p.type,t:Date.parse(p.time)});
+  else if(p.kind==='gps')S.track=c.map((q,i)=>({lon:q[0],lat:q[1],ele:null,t:(p.times||[])[i]||0}))}
+ drawMarkers();render();$('menu').close();
+ if(S.track.length)map.fitBounds(S.track.reduce((b,p)=>b.extend([p.lon,p.lat]),new maplibregl.LngLatBounds()),{padding:40});
+ e.target.value='';toast('Projekti avattu');
+};
+
+// --- Autosave ---
+function save(){try{localStorage.setItem('proj',JSON.stringify({S:{...S,rec:false},name:$('name').value}))}catch(e){}}
+try{const r=JSON.parse(LS('proj')||'null');if(r&&r.S.track.length){Object.assign(S,r.S,{rec:false,wet:false,veg:false});$('name').value=r.name||'';map.on('load',()=>{drawMarkers();toast('Edellinen projekti palautettu')})}}catch(e){}
+</script></body></html>
