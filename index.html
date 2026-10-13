@@ -1,19 +1,19 @@
 <!DOCTYPE html>
 <html lang="fi"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<title>Maastokartoitus V1.12</title>
+<title>Maastokartoitus V1.13</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.css">
 <style>
 html,body{margin:0;height:100%;font-family:system-ui,sans-serif;overflow:hidden}
 #map{position:absolute;inset:0}
 #top{position:absolute;top:0;left:0;right:0;display:flex;gap:4px;padding:4px;z-index:5}#top button{min-width:48px}
-#dist{align-self:center;font:700 14px system-ui;background:#fffd;padding:6px 7px;border-radius:6px;white-space:nowrap}
+#dist{align-self:center;font:700 18px system-ui;background:#fffd;padding:6px 7px;border-radius:6px;white-space:nowrap}
 #top input{flex:1;min-width:0;font-size:14px;padding:6px;border:1px solid #888;border-radius:8px}
 button{font:600 14px system-ui;border:1.5px solid #333;background:#fff;border-radius:8px;min-height:40px;padding:0 4px}
 button.on{color:#fff;background:#222}
 #rec.on{background:#d62828;border-color:#d62828}
-#panel{position:absolute;right:4px;top:100px;bottom:20px;width:58px;display:flex;flex-direction:column;justify-content:center;gap:3px;z-index:5;overflow-y:auto}
-#panel button{width:100%;min-height:36px;max-height:54px;flex:1 1 0;font-size:14px;padding:0}
+#panel{position:absolute;right:4px;top:54px;bottom:10px;width:58px;display:flex;flex-direction:column;justify-content:center;gap:3px;z-index:5;overflow-y:auto}
+#panel button{width:100%;min-height:32px;max-height:54px;flex:1 1 0;font-size:14px;padding:0}
 #panel button[data-s]{background:var(--c);color:var(--t,#fff);border-color:var(--c);opacity:.55}
 #panel button[data-s].on{opacity:1;border-color:#000;box-shadow:0 0 0 2px #fff inset}
 #wet.on{background:#1f6fd1;border-color:#1f6fd1}#veg.on{background:#2e9e44;border-color:#2e9e44}
@@ -24,7 +24,7 @@ button.on{color:#fff;background:#222}
 dialog{border-radius:12px;max-width:340px;width:90%}
 dialog button,dialog input{display:block;width:100%;margin:6px 0;box-sizing:border-box}
 dialog input{font-size:16px;padding:8px}
-.poi{position:relative;width:28px;height:28px;font-size:24px;line-height:28px;text-align:center;filter:drop-shadow(0 0 2px #fff) drop-shadow(0 0 1px #fff)}
+.poi{width:28px;height:28px;font-size:24px;line-height:28px;text-align:center;filter:drop-shadow(0 0 2px #fff) drop-shadow(0 0 1px #fff)}
 .poi svg{width:28px;height:28px}
 .poi .lbl{position:absolute;top:100%;left:50%;transform:translateX(-50%);font:700 11px system-ui;background:#fffe;color:#000;padding:0 4px;border-radius:4px;white-space:nowrap;filter:none}
 #poiSheet{position:absolute;right:68px;top:50%;transform:translateY(-50%);z-index:8;background:#fff;border:2px solid #333;border-radius:12px;padding:8px;display:flex;flex-direction:column;gap:6px;width:220px}
@@ -62,7 +62,7 @@ dialog input{font-size:16px;padding:8px}
  <input id="key" placeholder="MML API-avain">
  <label><input type="checkbox" id="swap" style="display:inline;width:auto"> Vaihda WET/VEG puolet</label>
  <button id="clearAll">Uusi projekti (tyhjennä)</button>
- <div style="text-align:center;font:11px system-ui;color:#666">Maastokartoitus V1.12</div>
+ <div style="text-align:center;font:11px system-ui;color:#666">Maastokartoitus V1.13</div>
  <button id="close">Sulje</button>
 </dialog>
 <input type="file" id="file" accept=".geojson,.json" hidden>
@@ -97,9 +97,11 @@ let src=LS('src');if(!SRC[src])src=key?'mml':'kapsiwms';
 if((src==='mml'||src==='mmltausta')&&!key){src='kapsiwms';setTimeout(()=>toast('MML-kartta vaatii API-avaimen (valikko). Käytetään Kapsia.',6000),500)}
 $('src').value=src;
 const [tiles,attr,scheme,maxz]=SRC[src];
-const map=new maplibregl.Map({container:'map',center:[25.0,60.2],zoom:13,attributionControl:{compact:true},
+let sv=null;try{sv=JSON.parse(LS('view')||'null')}catch(e){}
+const map=new maplibregl.Map({container:'map',center:sv?sv.c:[25.0,60.2],zoom:sv?sv.z:13,attributionControl:{compact:true},
  canvasContextAttributes:{preserveDrawingBuffer:true},
  style:{version:8,sources:{base:{type:'raster',tiles:[tiles],tileSize:256,maxzoom:maxz||17,scheme:scheme||'xyz',attribution:attr}},layers:[{id:'base',type:'raster',source:'base'}]}});
+map.on('moveend',()=>{try{localStorage.setItem('view',JSON.stringify({c:map.getCenter().toArray(),z:map.getZoom()}))}catch(e){}});
 const empty={type:'FeatureCollection',features:[]};
 map.on('load',()=>{
  ['gps','ref','trail','wet','veg','pit','poi','refpts'].forEach(s=>map.addSource(s,{type:'geojson',data:empty}));
