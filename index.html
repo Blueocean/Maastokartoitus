@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="fi"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<title>Maastokartoitus V1.13</title>
+<title>Maastokartoitus V1.14</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.css">
 <style>
 html,body{margin:0;height:100%;font-family:system-ui,sans-serif;overflow:hidden}
@@ -58,12 +58,20 @@ dialog input{font-size:16px;padding:8px}
  <button id="clearRef">Poista taustajäljet</button>
  <div id="refInfo" style="font:11px system-ui;color:#555;text-align:center"></div>
  <button id="open">Avaa projekti (GeoJSON)</button>
+ <button id="settingsBtn">Asetukset</button>
+ <button id="clearAll">Uusi projekti (tyhjennä)</button>
+ <div style="text-align:center;font:11px system-ui;color:#666">Maastokartoitus V1.14</div>
+ <button id="close">Sulje</button>
+</dialog>
+<dialog id="settings">
+ <div style="font-weight:700;margin-bottom:4px">Asetukset</div>
  <select id="src" style="font-size:16px;padding:8px;width:100%"><option value="mml">MML maastokartta (API-avain)</option><option value="mmltausta">MML taustakartta (API-avain)</option><option value="kapsiwms">Kapsi: MML peruskartta (WMS, kokeilu)</option><option value="kapsitausta">Kapsi: MML taustakartta (WMS, kokeilu)</option><option value="osm">OpenStreetMap</option></select>
  <input id="key" placeholder="MML API-avain">
  <label><input type="checkbox" id="swap" style="display:inline;width:auto"> Vaihda WET/VEG puolet</label>
- <button id="clearAll">Uusi projekti (tyhjennä)</button>
- <div style="text-align:center;font:11px system-ui;color:#666">Maastokartoitus V1.13</div>
- <button id="close">Sulje</button>
+ <label><input type="checkbox" id="rot" style="display:inline;width:auto"> Salli kartan kierto</label>
+ <label style="display:block;margin-top:8px">Jäljen viivan paksuus: <b id="lwv">1×</b></label>
+ <input type="range" id="lw" min="0.5" max="3" step="0.25" value="1">
+ <button id="closeSet">Sulje</button>
 </dialog>
 <input type="file" id="file" accept=".geojson,.json" hidden>
 <input type="file" id="gpxfile" hidden>
@@ -74,6 +82,8 @@ const LS=k=>localStorage.getItem(k);
 const SC={'0':'#2e9e44','1':'#f2c200','2':'#f28c00','3':'#d62828','4':'#c08bf0','':'#666666'};
 const DASH={'0':[8,1],'1':[6,1.5],'2':[4,2],'3':[3,3],'4':[1.5,4],'':[1,0]};
 const W={path:0.3,track:3};
+let LW=parseFloat(localStorage.getItem('lw'))||1;
+const tw=m=>['interpolate',['linear'],['zoom'],12,['*',1.5*m,['get','wm']],20,['*',4*m,['get','wm']]];
 document.querySelectorAll('[data-s]').forEach(b=>{b.style.setProperty('--c',SC[b.dataset.s]);if(['1','2','4'].includes(b.dataset.s))b.style.setProperty('--t','#000')});
 let S;
 function fresh(){S={name:'',rec:false,hw:'path',scale:'',wet:false,veg:false,track:[],trail:[],wetS:[],vegS:[],pois:[],pit:false,pitS:[],last:null,dist:0,lastD:null}}
@@ -110,7 +120,7 @@ map.on('load',()=>{
  for(const s of Object.keys(SC)){
   map.addLayer({id:'trail'+s,type:'line',source:'trail',filter:['==',['get','sc'],s],layout:{'line-cap':'butt'},
    paint:{'line-color':SC[s],'line-dasharray':DASH[s],
-    'line-width':['interpolate',['linear'],['zoom'],12,['*',1.5,['get','wm']],20,['*',4,['get','wm']]]}});
+    'line-width':tw(LW)}});
  }
  const off=['interpolate',['linear'],['zoom'],12,4,20,14];
  const side=m=>["*",m,1];
@@ -205,7 +215,22 @@ $('fs').onclick=async()=>{try{if(document.fullscreenElement)await document.exitF
 document.addEventListener('visibilitychange',async()=>{if(document.visibilityState==='visible'&&S.rec){try{wake=await navigator.wakeLock.request('screen')}catch(e){}}});
 // --- Menu / settings ---
 $('menuBtn').onclick=()=>$('menu').showModal();$('close').onclick=()=>$('menu').close();
-$('src').onchange=e=>{localStorage.setItem('src',e.target.value);location.reload()};
+function applyBase(k){
+ if((k==='mml'||k==='mmltausta')&&!key){toast('MML-kartta vaatii API-avaimen (asetukset). Käytetään Kapsia.',5000);k='kapsiwms'}
+ const [t,a,sch,mz]=SRC[k];$('src').value=k;
+ if(map.getLayer('base'))map.removeLayer('base');if(map.getSource('base'))map.removeSource('base');
+ map.addSource('base',{type:'raster',tiles:[t],tileSize:256,maxzoom:mz||17,scheme:sch||'xyz',attribution:a});
+ map.addLayer({id:'base',type:'raster',source:'base'},map.getLayer('gps')?'gps':undefined);
+}
+$('src').onchange=e=>{localStorage.setItem('src',e.target.value);applyBase(e.target.value)};
+$('settingsBtn').onclick=()=>{$('menu').close();$('settings').showModal()};
+$('closeSet').onclick=()=>$('settings').close();
+function applyRot(){if($('rot').checked){map.dragRotate.enable();map.touchZoomRotate.enableRotation()}else{map.dragRotate.disable();map.touchZoomRotate.disableRotation();if(map.getBearing())map.easeTo({bearing:0,duration:300})}}
+$('rot').checked=localStorage.getItem('rot')==='1';applyRot();
+$('rot').onchange=()=>{localStorage.setItem('rot',$('rot').checked?'1':'0');applyRot()};
+function applyLW(){for(const k of Object.keys(SC))if(map.getLayer('trail'+k))map.setPaintProperty('trail'+k,'line-width',tw(LW))}
+$('lw').value=LW;$('lwv').textContent=LW+'×';
+$('lw').oninput=e=>{LW=+e.target.value;$('lwv').textContent=LW+'×';localStorage.setItem('lw',LW);applyLW()};
 $('key').onchange=e=>{localStorage.setItem('mmlkey',e.target.value.trim());location.reload()};
 $('swap').onchange=()=>{localStorage.setItem('swap',$('swap').checked?'1':'0');applySides()};
 $('clearAll').onclick=()=>{if(confirm('Tyhjennetäänkö nykyinen projekti?')){fresh();$('name').value='';$('rec').classList.remove('on');$('rec').textContent='● REC';['wet','veg','pit'].forEach(b=>$(b).classList.remove('on'));drawMarkers();render();$('menu').close()}};
@@ -254,7 +279,8 @@ $('file').onchange=async e=>{
 };
 
 // --- GPX background tracks ---
-let REF=[];
+let REF=[];try{REF=JSON.parse(LS('ref')||'[]')}catch(e){}
+function saveRef(){try{localStorage.setItem('ref',JSON.stringify(REF))}catch(e){toast('Taustajälki ei mahdu muistiin ja katoaa sivun uudelleenlatauksessa',6000)}}
 function renderRef(){
  if(!map.getSource('ref'))return;
  map.getSource('ref').setData({type:'FeatureCollection',features:REF.flatMap(t=>t.segs.map(c=>line(c,{})))});
@@ -263,19 +289,19 @@ function renderRef(){
 }
 map.on('click','refpts',e=>new maplibregl.Popup().setLngLat(e.lngLat).setText(e.features[0].properties.name||'(ei nimeä)').addTo(map));
 $('openGpx').onclick=()=>$('gpxfile').click();
-$('clearRef').onclick=()=>{REF=[];renderRef();$('menu').close()};
+$('clearRef').onclick=()=>{REF=[];renderRef();saveRef();$('menu').close()};
 $('gpxfile').onchange=async e=>{
  const f=e.target.files[0];e.target.value='';if(!f)return;
  try{
   const x=new DOMParser().parseFromString(await f.text(),'application/xml');
   if(x.getElementsByTagName('parsererror').length)throw new Error('tiedosto ei ole kelvollinen GPX');
-  const pt=n=>[+n.getAttribute('lon'),+n.getAttribute('lat')],ok=c=>isFinite(c[0])&&isFinite(c[1]);
+  const pt=n=>[+(+n.getAttribute('lon')).toFixed(6),+(+n.getAttribute('lat')).toFixed(6)],ok=c=>isFinite(c[0])&&isFinite(c[1]);
   const segs=[...x.getElementsByTagName('trkseg')].map(sg=>[...sg.getElementsByTagName('trkpt')].map(pt).filter(ok))
    .concat([...x.getElementsByTagName('rte')].map(rt=>[...rt.getElementsByTagName('rtept')].map(pt).filter(ok))).filter(sg=>sg.length>1);
   const pts=[...x.getElementsByTagName('wpt')].map(w=>({c:pt(w),name:(w.getElementsByTagName('name')[0]||{}).textContent||''})).filter(p=>ok(p.c));
   if(!segs.length&&!pts.length)throw new Error('ei jälkiä tai pisteitä');
   let m=0;segs.forEach(sg=>{let l=sg[0];for(const q of sg.slice(1)){const d=hav(l,q);if(d>=3){m+=d;l=q}}});
-  REF.push({name:f.name,segs,pts,km:m/1000});renderRef();
+  REF.push({name:f.name,segs,pts,km:m/1000});renderRef();saveRef();
   const b=new maplibregl.LngLatBounds();segs.forEach(sg=>sg.forEach(c=>b.extend(c)));pts.forEach(p=>b.extend(p.c));
   follow=false;$('follow').classList.remove('on');map.fitBounds(b,{padding:60,duration:0,maxZoom:17});
   toast(f.name+': '+(m/1000).toFixed(2)+' km, '+segs.reduce((a,sg)=>a+sg.length,0)+' pistettä',5000);
