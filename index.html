@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="fi"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<title>Maastokartoitus V1.14</title>
+<title>Maastokartoitus V1.16</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.css">
 <style>
 html,body{margin:0;height:100%;font-family:system-ui,sans-serif;overflow:hidden}
@@ -33,9 +33,11 @@ dialog input{font-size:16px;padding:8px}
 #poiSheet .ic{display:inline-block;width:26px;height:26px;vertical-align:middle;margin-right:6px;font-size:22px;text-align:center}
 #poiSheet .ic svg{width:26px;height:26px}
 #poiSheet input{flex:1;min-width:0;font-size:16px;padding:8px;border:1px solid #888;border-radius:8px}
+#cross{position:absolute;left:50%;top:50%;width:22px;height:22px;margin:-11px 0 0 -11px;border:2px solid #000;border-radius:50%;box-shadow:0 0 0 2px #fff,inset 0 0 0 2px #fff;pointer-events:none;z-index:4;display:none}
+#cross::after{content:'';position:absolute;left:50%;top:50%;width:4px;height:4px;margin:-2px 0 0 -2px;background:#d81b60;border-radius:50%}
 #pit.on{background:#8d5524;border-color:#8d5524}
 </style></head><body>
-<div id="map"></div>
+<div id="map"></div><div id="cross"></div>
 <div id="top"><input id="name" placeholder="Projektin nimi"><span id="dist">0.00 km</span><button id="rec">● REC</button><button id="menuBtn">☰</button></div>
 <button id="follow" class="on">◎</button><button id="fs">⛶</button>
 <div id="panel">
@@ -48,7 +50,7 @@ dialog input{font-size:16px;padding:8px}
  <button id="poiBtn" style="font-size:12px">📍POI</button>
 </div>
 <div id="acc">GPS: haetaan…</div>
-<div id="poiSheet" hidden><div id="poiList" style="display:flex;flex-direction:column;gap:6px"></div><div style="display:flex;gap:6px"><input id="poiName" placeholder="Muu POI, esim. Laavu"><button id="poiSave" style="min-width:52px;text-align:center">OK</button></div><button id="poiCancel">Peruuta</button></div>
+<div id="poiSheet" hidden><div id="poiWhere" style="font:700 13px system-ui;text-align:center"></div><div id="poiList" style="display:flex;flex-direction:column;gap:6px"></div><div style="display:flex;gap:6px"><input id="poiName" placeholder="Muu POI, esim. Laavu"><button id="poiSave" style="min-width:52px;text-align:center">OK</button></div><button id="poiCancel">Peruuta</button></div>
 <div id="toast"></div>
 <dialog id="menu">
  <button id="expGpx">Tallenna GPX</button>
@@ -60,7 +62,7 @@ dialog input{font-size:16px;padding:8px}
  <button id="open">Avaa projekti (GeoJSON)</button>
  <button id="settingsBtn">Asetukset</button>
  <button id="clearAll">Uusi projekti (tyhjennä)</button>
- <div style="text-align:center;font:11px system-ui;color:#666">Maastokartoitus V1.14</div>
+ <div style="text-align:center;font:11px system-ui;color:#666">Maastokartoitus V1.16</div>
  <button id="close">Sulje</button>
 </dialog>
 <dialog id="settings">
@@ -69,6 +71,8 @@ dialog input{font-size:16px;padding:8px}
  <input id="key" placeholder="MML API-avain">
  <label><input type="checkbox" id="swap" style="display:inline;width:auto"> Vaihda WET/VEG puolet</label>
  <label><input type="checkbox" id="rot" style="display:inline;width:auto"> Salli kartan kierto</label>
+ <label style="display:block;margin-top:8px">Kartan tarkkuus (pienempi = tarkempi pohjakartta kauempaa, mutta pienempi teksti ja enemmän dataa)</label>
+ <select id="ts" style="font-size:16px;padding:8px;width:100%"><option value="256">Normaali (256)</option><option value="192">Tarkempi (192)</option><option value="128">Tarkka (128)</option><option value="96">Hyvin tarkka (96)</option><option value="64">Tarkin (64)</option></select>
  <label style="display:block;margin-top:8px">Jäljen viivan paksuus: <b id="lwv">1×</b></label>
  <input type="range" id="lw" min="0.5" max="3" step="0.25" value="1">
  <button id="closeSet">Sulje</button>
@@ -83,6 +87,7 @@ const SC={'0':'#2e9e44','1':'#f2c200','2':'#f28c00','3':'#d62828','4':'#c08bf0',
 const DASH={'0':[8,1],'1':[6,1.5],'2':[4,2],'3':[3,3],'4':[1.5,4],'':[1,0]};
 const W={path:0.3,track:3};
 let LW=parseFloat(localStorage.getItem('lw'))||1;
+let TS=parseInt(localStorage.getItem('ts'))||256;
 const tw=m=>['interpolate',['linear'],['zoom'],12,['*',1.5*m,['get','wm']],20,['*',4*m,['get','wm']]];
 document.querySelectorAll('[data-s]').forEach(b=>{b.style.setProperty('--c',SC[b.dataset.s]);if(['1','2','4'].includes(b.dataset.s))b.style.setProperty('--t','#000')});
 let S;
@@ -110,7 +115,7 @@ const [tiles,attr,scheme,maxz]=SRC[src];
 let sv=null;try{sv=JSON.parse(LS('view')||'null')}catch(e){}
 const map=new maplibregl.Map({container:'map',center:sv?sv.c:[25.0,60.2],zoom:sv?sv.z:13,attributionControl:{compact:true},
  canvasContextAttributes:{preserveDrawingBuffer:true},
- style:{version:8,sources:{base:{type:'raster',tiles:[tiles],tileSize:256,maxzoom:maxz||17,scheme:scheme||'xyz',attribution:attr}},layers:[{id:'base',type:'raster',source:'base'}]}});
+ style:{version:8,sources:{base:{type:'raster',tiles:[tiles],tileSize:TS,maxzoom:maxz||17,scheme:scheme||'xyz',attribution:attr}},layers:[{id:'base',type:'raster',source:'base'}]}});
 map.on('moveend',()=>{try{localStorage.setItem('view',JSON.stringify({c:map.getCenter().toArray(),z:map.getZoom()}))}catch(e){}});
 const empty={type:'FeatureCollection',features:[]};
 map.on('load',()=>{
@@ -162,6 +167,7 @@ function drawMarkers(){markers.forEach(m=>m.remove());markers=S.pois.map(p=>{con
 // --- GPS ---
 const dotEl=document.createElement('div');dotEl.style.cssText='width:18px;height:18px;border-radius:50%;background:#1a73e8;border:3px solid #fff;box-shadow:0 0 4px #000';
 const dot=new maplibregl.Marker({element:dotEl});let dotOn=false,follow=true,first=true;
+function setFollow(v){follow=v;$('follow').classList.toggle('on',v);$('cross').style.display=v?'none':'block'}
 function gpsErr(e){
  const m=e.code===1?'Sijaintilupa estetty. Chrome: ⋮ → Asetukset → Sivustojen asetukset → Sijainti → salli tälle sivulle. Tarkista myös Androidin asetuksista, että Chromella on sijaintilupa ja sijainti on päällä.'
   :e.code===2?'Paikannus ei onnistu (sijainti pois päältä tai ei signaalia).':'Paikannus aikakatkaistiin, yritetään uudelleen…';
@@ -181,8 +187,8 @@ navigator.geolocation.watchPosition(p=>{
   render();
  }
 },gpsErr,{enableHighAccuracy:true,maximumAge:0,timeout:20000});
-map.on('dragstart',()=>{follow=false;$('follow').classList.remove('on')});
-$('follow').onclick=()=>{follow=true;$('follow').classList.add('on');if(S.last)map.easeTo({center:S.last})};
+map.on('dragstart',()=>setFollow(false));
+$('follow').onclick=()=>{setFollow(true);if(S.last)map.easeTo({center:S.last})};
 
 // --- Controls ---
 let wake=null;
@@ -207,7 +213,11 @@ tog('wet','wetS','wet');tog('veg','vegS','veg');tog('pit','pitS','pit');
 let poiPos=null;
 ['fallen_tree','bridge','ditch'].forEach(k=>{const b=document.createElement('button');b.innerHTML='<span class="ic">'+ICON[k].h+'</span>'+ICON[k].label;b.onclick=()=>addPoi(k,'');$('poiList').appendChild(b)});
 function addPoi(type,name){S.pois.push({c:poiPos,type,name,t:Date.now()});$('poiSheet').hidden=true;$('poiName').value='';drawMarkers();render();toast((ICON[type]||ICON.custom).label+' tallennettu');navigator.vibrate&&navigator.vibrate(60)}
-$('poiBtn').onclick=()=>{if(!S.last)return toast('Ei GPS-paikkaa');poiPos=S.last;$('poiSheet').hidden=false};
+$('poiBtn').onclick=()=>{
+ if(!follow){const c=map.getCenter();poiPos=[c.lng,c.lat]}
+ else{if(!S.last)return toast('Ei GPS-paikkaa. Siirrä karttaa ja valitse paikka keskiympyrällä.',4000);poiPos=S.last}
+ $('poiWhere').textContent=follow?'📍 GPS-sijaintiin':'📍 Kartan keskipisteeseen';
+ $('poiSheet').hidden=false};
 $('poiSave').onclick=()=>addPoi('custom',$('poiName').value.trim());
 $('poiCancel').onclick=()=>{$('poiSheet').hidden=true};
 
@@ -219,7 +229,7 @@ function applyBase(k){
  if((k==='mml'||k==='mmltausta')&&!key){toast('MML-kartta vaatii API-avaimen (asetukset). Käytetään Kapsia.',5000);k='kapsiwms'}
  const [t,a,sch,mz]=SRC[k];$('src').value=k;
  if(map.getLayer('base'))map.removeLayer('base');if(map.getSource('base'))map.removeSource('base');
- map.addSource('base',{type:'raster',tiles:[t],tileSize:256,maxzoom:mz||17,scheme:sch||'xyz',attribution:a});
+ map.addSource('base',{type:'raster',tiles:[t],tileSize:TS,maxzoom:mz||17,scheme:sch||'xyz',attribution:a});
  map.addLayer({id:'base',type:'raster',source:'base'},map.getLayer('gps')?'gps':undefined);
 }
 $('src').onchange=e=>{localStorage.setItem('src',e.target.value);applyBase(e.target.value)};
@@ -229,6 +239,7 @@ function applyRot(){if($('rot').checked){map.dragRotate.enable();map.touchZoomRo
 $('rot').checked=localStorage.getItem('rot')==='1';applyRot();
 $('rot').onchange=()=>{localStorage.setItem('rot',$('rot').checked?'1':'0');applyRot()};
 function applyLW(){for(const k of Object.keys(SC))if(map.getLayer('trail'+k))map.setPaintProperty('trail'+k,'line-width',tw(LW))}
+$('ts').value=String(TS);$('ts').onchange=e=>{TS=+e.target.value;localStorage.setItem('ts',TS);applyBase($('src').value)};
 $('lw').value=LW;$('lwv').textContent=LW+'×';
 $('lw').oninput=e=>{LW=+e.target.value;$('lwv').textContent=LW+'×';localStorage.setItem('lw',LW);applyLW()};
 $('key').onchange=e=>{localStorage.setItem('mmlkey',e.target.value.trim());location.reload()};
@@ -303,7 +314,7 @@ $('gpxfile').onchange=async e=>{
   let m=0;segs.forEach(sg=>{let l=sg[0];for(const q of sg.slice(1)){const d=hav(l,q);if(d>=3){m+=d;l=q}}});
   REF.push({name:f.name,segs,pts,km:m/1000});renderRef();saveRef();
   const b=new maplibregl.LngLatBounds();segs.forEach(sg=>sg.forEach(c=>b.extend(c)));pts.forEach(p=>b.extend(p.c));
-  follow=false;$('follow').classList.remove('on');map.fitBounds(b,{padding:60,duration:0,maxZoom:17});
+  setFollow(false);map.fitBounds(b,{padding:60,duration:0,maxZoom:17});
   toast(f.name+': '+(m/1000).toFixed(2)+' km, '+segs.reduce((a,sg)=>a+sg.length,0)+' pistettä',5000);
  }catch(err){toast('GPX:n avaus epäonnistui: '+err.message,6000)}
  $('menu').close();
