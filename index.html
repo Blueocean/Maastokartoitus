@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="fi"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<title>Maastokartoitus V1.16</title>
+<title>Maastokartoitus V1.17</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.css">
 <style>
 html,body{margin:0;height:100%;font-family:system-ui,sans-serif;overflow:hidden}
@@ -21,7 +21,7 @@ button.on{color:#fff;background:#222}
 #fs{position:absolute;left:6px;bottom:20px;z-index:5;width:46px;height:46px;font-size:20px}
 #acc{position:absolute;left:6px;top:56px;font:11px system-ui;background:#fffd;padding:1px 6px;border-radius:4px;z-index:5}
 #toast{position:absolute;left:50%;top:70px;transform:translateX(-50%);background:#000c;color:#fff;padding:8px 14px;border-radius:8px;z-index:9;display:none}
-dialog{border-radius:12px;max-width:340px;width:90%}
+dialog{border-radius:12px;max-width:340px;width:90%;max-height:90vh;overflow:auto}
 dialog button,dialog input{display:block;width:100%;margin:6px 0;box-sizing:border-box}
 dialog input{font-size:16px;padding:8px}
 .poi{width:28px;height:28px;font-size:24px;line-height:28px;text-align:center;filter:drop-shadow(0 0 2px #fff) drop-shadow(0 0 1px #fff)}
@@ -60,9 +60,11 @@ dialog input{font-size:16px;padding:8px}
  <button id="clearRef">Poista taustajäljet</button>
  <div id="refInfo" style="font:11px system-ui;color:#555;text-align:center"></div>
  <button id="open">Avaa projekti (GeoJSON)</button>
+ <button id="fetchOsm">Hae OSM-reitit tästä näkymästä</button>
+ <button id="clearOsm">Tyhjennä OSM-data</button>
  <button id="settingsBtn">Asetukset</button>
  <button id="clearAll">Uusi projekti (tyhjennä)</button>
- <div style="text-align:center;font:11px system-ui;color:#666">Maastokartoitus V1.16</div>
+ <div style="text-align:center;font:11px system-ui;color:#666">Maastokartoitus V1.17</div>
  <button id="close">Sulje</button>
 </dialog>
 <dialog id="settings">
@@ -75,6 +77,8 @@ dialog input{font-size:16px;padding:8px}
  <select id="ts" style="font-size:16px;padding:8px;width:100%"><option value="256">Normaali (256)</option><option value="192">Tarkempi (192)</option><option value="128">Tarkka (128)</option><option value="96">Hyvin tarkka (96)</option><option value="64">Tarkin (64)</option></select>
  <label style="display:block;margin-top:8px">Jäljen viivan paksuus: <b id="lwv">1×</b></label>
  <input type="range" id="lw" min="0.5" max="3" step="0.25" value="1">
+ <label style="display:block;margin-top:8px">OSM-reittien näkyvyys: <b id="opv"></b></label>
+ <input type="range" id="op" min="0" max="1" step="0.1">
  <button id="closeSet">Sulje</button>
 </dialog>
 <input type="file" id="file" accept=".geojson,.json" hidden>
@@ -119,9 +123,14 @@ const map=new maplibregl.Map({container:'map',center:sv?sv.c:[25.0,60.2],zoom:sv
 map.on('moveend',()=>{try{localStorage.setItem('view',JSON.stringify({c:map.getCenter().toArray(),z:map.getZoom()}))}catch(e){}});
 const empty={type:'FeatureCollection',features:[]};
 map.on('load',()=>{
+ map.addSource('osm',{type:'geojson',data:empty,attribution:'© OpenStreetMap contributors'});
  ['gps','ref','trail','wet','veg','pit','poi','refpts'].forEach(s=>map.addSource(s,{type:'geojson',data:empty}));
  map.addLayer({id:'gps',type:'line',source:'gps',paint:{'line-color':'#666','line-width':1,'line-opacity':.6}});
  map.addLayer({id:'ref',type:'line',source:'ref',layout:{'line-join':'round'},paint:{'line-color':'#d81b60','line-width':3,'line-opacity':.85}});
+ const ow=(a,b)=>['interpolate',['linear'],['zoom'],12,['+',['*',1.5,['get','wm']],a],20,['+',['*',4,['get','wm']],b]];
+ map.addLayer({id:'osm_case',type:'line',source:'osm',layout:{'line-cap':'round','line-join':'round'},paint:{'line-color':'#ffffff','line-width':ow(2,2.5)}},'ref');
+ map.addLayer({id:'osm_line',type:'line',source:'osm',layout:{'line-cap':'round','line-join':'round'},paint:{'line-color':OSMC,'line-width':['interpolate',['linear'],['zoom'],12,['*',1.5,['get','wm']],20,['*',4,['get','wm']]]}},'ref');
+ map.addLayer({id:'osm_hit',type:'line',source:'osm',paint:{'line-color':'#000000','line-opacity':0.01,'line-width':16}},'ref');
  for(const s of Object.keys(SC)){
   map.addLayer({id:'trail'+s,type:'line',source:'trail',filter:['==',['get','sc'],s],layout:{'line-cap':'butt'},
    paint:{'line-color':SC[s],'line-dasharray':DASH[s],
@@ -135,7 +144,7 @@ const pw=(a,b)=>['interpolate',['linear'],['zoom'],12,a,20,b];
  map.addLayer({id:'veg',type:'line',source:'veg',layout:{'line-cap':'round'},paint:{'line-color':'#1b8a2f','line-width':3.5,'line-dasharray':[0.1,2],'line-offset':off}});
  map.addLayer({id:'poi',type:'circle',source:'poi',paint:{'circle-radius':7,'circle-color':['match',['get','type'],'fallen_tree','#f57c00','bridge','#8d6e63','ditch','#1f6fd1','#555555'],'circle-stroke-color':'#fff','circle-stroke-width':2}});
  map.addLayer({id:'refpts',type:'circle',source:'refpts',paint:{'circle-radius':6,'circle-color':'#d81b60','circle-stroke-color':'#fff','circle-stroke-width':2}});
- applySides();render();renderRef();
+ applySides();render();renderRef();renderOsm();
 });
 function applySides(){ // positive offset = right
  const sw=$('swap').checked;
@@ -319,6 +328,56 @@ $('gpxfile').onchange=async e=>{
  }catch(err){toast('GPX:n avaus epäonnistui: '+err.message,6000)}
  $('menu').close();
 };
+// --- OSM path/track layer (Overpass, read-only) ---
+let OSMF=[];try{OSMF=JSON.parse(LS('osmdata')||'[]')}catch(e){}
+let OP=parseFloat(LS('osmop'));if(isNaN(OP))OP=0.85;
+const OSMC=['match',['get','sc'],'0','#2e9e44','1','#f2c200','2','#f28c00','3','#d62828','4','#c08bf0','5','#8e24aa','6','#4a148c','#8a8a8a'];
+function applyOsmOp(){
+ if(!map.getLayer('osm_line'))return;
+ const v=OP>0?'visible':'none';
+ ['osm_case','osm_line','osm_hit'].forEach(l=>map.setLayoutProperty(l,'visibility',v));
+ map.setPaintProperty('osm_line','line-opacity',OP);map.setPaintProperty('osm_case','line-opacity',OP*0.8);
+}
+function renderOsm(){
+ if(!map.getSource('osm'))return;
+ map.getSource('osm').setData({type:'FeatureCollection',features:OSMF});applyOsmOp();
+}
+async function fetchOsm(){
+ if(map.getZoom()<12)return toast('Zoomaa lähemmäs (vähintään taso 12) ennen hakua',4000);
+ const b=map.getBounds(),bb=[b.getSouth(),b.getWest(),b.getNorth(),b.getEast()].map(v=>v.toFixed(5)).join(',');
+ const q='[out:json][timeout:25];way["highway"~"^(path|track)$"]('+bb+');out geom;';
+ toast('Haetaan OSM-reittejä…',30000);
+ let data=null,err='';
+ for(const ep of ['https://overpass-api.de/api/interpreter','https://overpass.kumi.systems/api/interpreter']){
+  try{
+   const ctl=new AbortController(),t=setTimeout(()=>ctl.abort(),30000);
+   const res=await fetch(ep,{method:'POST',body:'data='+encodeURIComponent(q),headers:{'Content-Type':'application/x-www-form-urlencoded'},signal:ctl.signal});
+   clearTimeout(t);if(!res.ok)throw new Error('HTTP '+res.status);
+   data=await res.json();break;
+  }catch(e){err=e.message}
+ }
+ if(!data)return toast('OSM-haku epäonnistui: '+err,7000);
+ if(data.remark&&!data.elements.length)return toast('Overpass: '+data.remark,8000);
+ const m=new Map(OSMF.map(f=>[f.properties.id,f]));let n=0,nos=0;
+ for(const w of data.elements){
+  if(w.type!=='way'||!w.geometry||w.geometry.length<2)continue;
+  const t=w.tags||{},sc=((t['mtb:scale']||'').match(/^\d/)||[''])[0];
+  m.set(w.id,{type:'Feature',properties:{id:w.id,hw:t.highway,sc,ms:t['mtb:scale']||'',wm:t.highway==='track'?1.6:1,w:t.width||'',sf:t.surface||'',tt:t.tracktype||'',nm:t.name||''},
+   geometry:{type:'LineString',coordinates:w.geometry.map(p=>[+p.lon.toFixed(6),+p.lat.toFixed(6)])}});
+  n++;if(!sc)nos++;
+ }
+ OSMF=[...m.values()];renderOsm();
+ try{localStorage.setItem('osmdata',JSON.stringify(OSMF))}catch(e){toast('OSM-data ei mahdu muistiin ja katoaa sivun uudelleenlatauksessa',6000)}
+ toast('OSM: '+n+' reittiä haettu, '+nos+' ilman mtb:scale-arvoa',7000);
+}
+$('fetchOsm').onclick=()=>{$('menu').close();fetchOsm()};
+$('clearOsm').onclick=()=>{OSMF=[];renderOsm();try{localStorage.removeItem('osmdata')}catch(e){}$('menu').close();toast('OSM-data tyhjennetty')};
+map.on('click','osm_hit',e=>{
+ const p=e.features[0].properties,row=(k,v)=>v?'<div><b>'+k+'</b> '+esc(v)+'</div>':'';
+ new maplibregl.Popup({maxWidth:'240px'}).setLngLat(e.lngLat).setHTML('<div style="font:13px system-ui">'+row('',p.nm)+row('highway=',p.hw)+(row('mtb:scale=',p.ms)||'<div>mtb:scale puuttuu</div>')+row('width=',p.w)+row('surface=',p.sf)+row('tracktype=',p.tt)+'<div><a href="https://www.openstreetmap.org/way/'+p.id+'" target="_blank" rel="noopener">Avaa OSM:ssä (way '+p.id+')</a></div></div>').addTo(map);
+});
+$('op').value=OP;const opLbl=()=>{$('opv').textContent=OP>0?Math.round(OP*100)+' %':'piilossa'};opLbl();
+$('op').oninput=e=>{OP=+e.target.value;opLbl();localStorage.setItem('osmop',OP);applyOsmOp()};
 // --- Autosave ---
 function save(){try{localStorage.setItem('proj',JSON.stringify({S:{...S,rec:false},name:$('name').value}))}catch(e){}}
 try{const r=JSON.parse(LS('proj')||'null');if(r&&r.S.track.length){Object.assign(S,r.S,{rec:false,wet:false,veg:false,pit:false});$('name').value=r.name||'';map.on('load',()=>{drawMarkers();toast('Edellinen projekti palautettu')})}}catch(e){}
