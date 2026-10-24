@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="fi"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<title>Maastokartoitus V1.17</title>
+<title>Maastokartoitus V1.18</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.css">
 <style>
 html,body{margin:0;height:100%;font-family:system-ui,sans-serif;overflow:hidden}
@@ -35,6 +35,8 @@ dialog input{font-size:16px;padding:8px}
 #poiSheet input{flex:1;min-width:0;font-size:16px;padding:8px;border:1px solid #888;border-radius:8px}
 #cross{position:absolute;left:50%;top:50%;width:22px;height:22px;margin:-11px 0 0 -11px;border:2px solid #000;border-radius:50%;box-shadow:0 0 0 2px #fff,inset 0 0 0 2px #fff;pointer-events:none;z-index:4;display:none}
 #cross::after{content:'';position:absolute;left:50%;top:50%;width:4px;height:4px;margin:-2px 0 0 -2px;background:#d81b60;border-radius:50%}
+.oph{width:26px;height:26px;border-radius:50%;background:#fffe;border:2px solid #333;display:flex;align-items:center;justify-content:center;font-size:15px;box-shadow:0 0 3px #0008;box-sizing:border-box}
+.oph svg{width:18px;height:18px}
 #pit.on{background:#8d5524;border-color:#8d5524}
 </style></head><body>
 <div id="map"></div><div id="cross"></div>
@@ -64,7 +66,7 @@ dialog input{font-size:16px;padding:8px}
  <button id="clearOsm">Tyhjennä OSM-data</button>
  <button id="settingsBtn">Asetukset</button>
  <button id="clearAll">Uusi projekti (tyhjennä)</button>
- <div style="text-align:center;font:11px system-ui;color:#666">Maastokartoitus V1.17</div>
+ <div style="text-align:center;font:11px system-ui;color:#666">Maastokartoitus V1.18</div>
  <button id="close">Sulje</button>
 </dialog>
 <dialog id="settings">
@@ -130,6 +132,9 @@ map.on('load',()=>{
  const ow=(a,b)=>['interpolate',['linear'],['zoom'],12,['+',['*',1.5,['get','wm']],a],20,['+',['*',4,['get','wm']],b]];
  map.addLayer({id:'osm_case',type:'line',source:'osm',layout:{'line-cap':'round','line-join':'round'},paint:{'line-color':'#ffffff','line-width':ow(2,2.5)}},'ref');
  map.addLayer({id:'osm_line',type:'line',source:'osm',layout:{'line-cap':'round','line-join':'round'},paint:{'line-color':OSMC,'line-width':['interpolate',['linear'],['zoom'],12,['*',1.5,['get','wm']],20,['*',4,['get','wm']]]}},'ref');
+ map.addLayer({id:'osm_nobike',type:'line',source:'osm',filter:['match',['get','bk'],['no','private'],true,false],layout:{'line-cap':'butt'},paint:{'line-color':'#d50000','line-dasharray':[1.2,1.2],'line-width':['interpolate',['linear'],['zoom'],12,['*',1.5,['get','wm']],20,['*',4,['get','wm']]]}},'ref');
+ map.addLayer({id:'osm_veg',type:'line',source:'osm',filter:['==',['get','ov'],1],layout:{'line-cap':'round'},paint:{'line-color':'#1b8a2f','line-width':2.5,'line-dasharray':[0.1,2],'line-offset':['interpolate',['linear'],['zoom'],12,3,20,8]}},'ref');
+ map.addLayer({id:'osm_mud',type:'line',source:'osm',filter:['==',['get','mud'],1],layout:{'line-cap':'round'},paint:{'line-color':'#1f6fd1','line-width':2.5,'line-dasharray':[0.1,2],'line-offset':['interpolate',['linear'],['zoom'],12,-3,20,-8]}},'ref');
  map.addLayer({id:'osm_hit',type:'line',source:'osm',paint:{'line-color':'#000000','line-opacity':0.01,'line-width':16}},'ref');
  for(const s of Object.keys(SC)){
   map.addLayer({id:'trail'+s,type:'line',source:'trail',filter:['==',['get','sc'],s],layout:{'line-cap':'butt'},
@@ -330,27 +335,56 @@ $('gpxfile').onchange=async e=>{
 };
 // --- OSM path/track layer (Overpass, read-only) ---
 let OSMF=[];try{OSMF=JSON.parse(LS('osmdata')||'[]')}catch(e){}
+let OSMP=[];try{OSMP=JSON.parse(LS('osmpts')||'[]')}catch(e){}
+let osmMk=[];
 let OP=parseFloat(LS('osmop'));if(isNaN(OP))OP=0.85;
 const OSMC=['match',['get','sc'],'0','#2e9e44','1','#f2c200','2','#f28c00','3','#d62828','4','#c08bf0','5','#8e24aa','6','#4a148c','#8a8a8a'];
+const OI={
+ gate:{l:'Este (portti/puomi)',h:'<svg viewBox="0 0 24 24"><path d="M3 4v16M21 4v16M3 8h18M3 16h18M3 8l18 8M3 16l18-8" stroke="#333" stroke-width="2" fill="none"/></svg>'},
+ fallen_tree:{l:'Kaatunut puu',h:'🪵'},
+ ford:{l:'Ojan/puron ylitys (ford)',h:SVGD},
+ vegetation:{l:'Kasvillisuus tiellä',h:'🌿'},
+ shelter:{l:'Laavu/kota',h:'<svg viewBox="0 0 24 24"><path d="M2 12L12 4l10 8z" fill="#8d6e63" stroke="#4e342e" stroke-width="1.5"/><path d="M5 12v8M19 12v8" stroke="#4e342e" stroke-width="2"/></svg>'},
+ fixme_continue:{l:'Ura jatkuu (fixme=continue)',h:'<svg viewBox="0 0 24 24"><path d="M3 12h15M12 5l7 7-7 7" stroke="#1565c0" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>'},
+ fixme_other:{l:'Kysymysmerkki (fixme)',h:'<svg viewBox="0 0 24 24"><text x="12" y="19" text-anchor="middle" font-size="20" font-weight="700" fill="#c62828" font-family="system-ui">?</text></svg>'}};
+const OTAGS=['name','barrier','obstacle','ford','amenity','shelter_type','fixme','bicycle','access','surface','highway','mtb:scale'];
+function pick(t){const o={};OTAGS.forEach(k=>{if(t[k])o[k]=t[k]});return o}
+function pointKind(t){
+ if(t.fixme)return /^continue/i.test(t.fixme.trim())?'fixme_continue':'fixme_other';
+ if(t.barrier==='gate')return 'gate';if(t.obstacle==='fallen_tree')return 'fallen_tree';if(t.ford==='yes')return 'ford';
+ if(t.obstacle==='vegetation')return 'vegetation';if(t.amenity==='shelter')return 'shelter';return null}
+function drawOsmMarkers(){
+ osmMk.forEach(m=>m.remove());osmMk=[];
+ if(!map.getSource('osm'))return;
+ osmMk=OSMP.map(p=>{
+  const ic=OI[p.k]||OI.fixme_other,e=document.createElement('div');e.className='oph';e.innerHTML=ic.h;e.title=ic.l;
+  e.style.opacity=Math.max(.5,OP);if(OP<=0)e.style.display='none';
+  e.addEventListener('click',ev=>{ev.stopPropagation();
+   const rows=Object.entries(p.tg).map(([k,v])=>'<div><b>'+esc(k)+'=</b>'+esc(v)+'</div>').join('');
+   new maplibregl.Popup({maxWidth:'240px'}).setLngLat(p.c).setHTML('<div style="font:13px system-ui"><div><b>'+ic.l+'</b></div>'+rows+'<div><a href="https://www.openstreetmap.org/'+p.ty+'/'+p.id+'" target="_blank" rel="noopener">Avaa OSM:ssä</a></div></div>').addTo(map)});
+  return new maplibregl.Marker({element:e}).setLngLat(p.c).addTo(map)});
+}
 function applyOsmOp(){
  if(!map.getLayer('osm_line'))return;
  const v=OP>0?'visible':'none';
- ['osm_case','osm_line','osm_hit'].forEach(l=>map.setLayoutProperty(l,'visibility',v));
+ ['osm_case','osm_line','osm_nobike','osm_veg','osm_mud','osm_hit'].forEach(l=>map.setLayoutProperty(l,'visibility',v));
  map.setPaintProperty('osm_line','line-opacity',OP);map.setPaintProperty('osm_case','line-opacity',OP*0.8);
+ ['osm_nobike','osm_veg','osm_mud'].forEach(l=>map.setPaintProperty(l,'line-opacity',OP));
+ osmMk.forEach(m=>{const el=m.getElement();el.style.display=OP>0?'':'none';el.style.opacity=Math.max(.5,OP)});
 }
 function renderOsm(){
  if(!map.getSource('osm'))return;
- map.getSource('osm').setData({type:'FeatureCollection',features:OSMF});applyOsmOp();
+ map.getSource('osm').setData({type:'FeatureCollection',features:OSMF});drawOsmMarkers();applyOsmOp();
 }
 async function fetchOsm(){
  if(map.getZoom()<12)return toast('Zoomaa lähemmäs (vähintään taso 12) ennen hakua',4000);
  const b=map.getBounds(),bb=[b.getSouth(),b.getWest(),b.getNorth(),b.getEast()].map(v=>v.toFixed(5)).join(',');
- const q='[out:json][timeout:25];way["highway"~"^(path|track)$"]('+bb+');out geom;';
- toast('Haetaan OSM-reittejä…',30000);
+ const q='[out:json][timeout:30];way["highway"~"^(path|track)$"]('+bb+')->.w;.w out geom;(node(w.w)["barrier"="gate"];node(w.w)["obstacle"~"^(fallen_tree|vegetation)$"];node(w.w)["ford"="yes"];node(w.w)["fixme"];nwr["amenity"="shelter"]('+bb+'););out center;';
+ toast('Haetaan OSM-tietoja…',40000);
  let data=null,err='';
  for(const ep of ['https://overpass-api.de/api/interpreter','https://overpass.kumi.systems/api/interpreter']){
   try{
-   const ctl=new AbortController(),t=setTimeout(()=>ctl.abort(),30000);
+   const ctl=new AbortController(),t=setTimeout(()=>ctl.abort(),40000);
    const res=await fetch(ep,{method:'POST',body:'data='+encodeURIComponent(q),headers:{'Content-Type':'application/x-www-form-urlencoded'},signal:ctl.signal});
    clearTimeout(t);if(!res.ok)throw new Error('HTTP '+res.status);
    data=await res.json();break;
@@ -358,23 +392,30 @@ async function fetchOsm(){
  }
  if(!data)return toast('OSM-haku epäonnistui: '+err,7000);
  if(data.remark&&!data.elements.length)return toast('Overpass: '+data.remark,8000);
- const m=new Map(OSMF.map(f=>[f.properties.id,f]));let n=0,nos=0;
+ const m=new Map(OSMF.map(f=>[f.properties.id,f])),pm=new Map(OSMP.map(p=>[p.ty+p.id,p]));let n=0,nos=0,np=0,nb=0;
  for(const w of data.elements){
-  if(w.type!=='way'||!w.geometry||w.geometry.length<2)continue;
-  const t=w.tags||{},sc=((t['mtb:scale']||'').match(/^\d/)||[''])[0];
-  m.set(w.id,{type:'Feature',properties:{id:w.id,hw:t.highway,sc,ms:t['mtb:scale']||'',wm:t.highway==='track'?1.6:1,w:t.width||'',sf:t.surface||'',tt:t.tracktype||'',nm:t.name||''},
-   geometry:{type:'LineString',coordinates:w.geometry.map(p=>[+p.lon.toFixed(6),+p.lat.toFixed(6)])}});
-  n++;if(!sc)nos++;
+  const t=w.tags||{};
+  if(w.type==='way'&&w.geometry&&w.geometry.length>1&&/^(path|track)$/.test(t.highway||'')){
+   const sc=((t['mtb:scale']||'').match(/^\d/)||[''])[0];
+   m.set(w.id,{type:'Feature',properties:{id:w.id,hw:t.highway,sc,ms:t['mtb:scale']||'',wm:t.highway==='track'?1.6:1,w:t.width||'',sf:t.surface||'',tt:t.tracktype||'',nm:t.name||'',bk:t.bicycle||'',mud:t.surface==='mud'?1:0,ov:t.obstacle==='vegetation'?1:0,fx:t.fixme||''},
+    geometry:{type:'LineString',coordinates:w.geometry.map(p=>[+p.lon.toFixed(6),+p.lat.toFixed(6)])}});
+   n++;if(!sc)nos++;if(t.bicycle==='no'||t.bicycle==='private')nb++;
+   if(t.fixme){const g=w.geometry[Math.floor(w.geometry.length/2)];pm.set('way'+w.id,{k:pointKind({fixme:t.fixme}),c:[+g.lon.toFixed(6),+g.lat.toFixed(6)],id:w.id,ty:'way',tg:pick(t)});np++}
+  }else{
+   const c=w.type==='node'?[w.lon,w.lat]:(w.center?[w.center.lon,w.center.lat]:null),k=pointKind(t);
+   if(!c||!k)continue;
+   pm.set(w.type+w.id,{k,c:[+c[0].toFixed(6),+c[1].toFixed(6)],id:w.id,ty:w.type,tg:pick(t)});np++;
+  }
  }
- OSMF=[...m.values()];renderOsm();
- try{localStorage.setItem('osmdata',JSON.stringify(OSMF))}catch(e){toast('OSM-data ei mahdu muistiin ja katoaa sivun uudelleenlatauksessa',6000)}
- toast('OSM: '+n+' reittiä haettu, '+nos+' ilman mtb:scale-arvoa',7000);
+ OSMF=[...m.values()];OSMP=[...pm.values()];renderOsm();
+ try{localStorage.setItem('osmdata',JSON.stringify(OSMF));localStorage.setItem('osmpts',JSON.stringify(OSMP))}catch(e){toast('OSM-data ei mahdu muistiin ja katoaa sivun uudelleenlatauksessa',6000)}
+ toast('OSM: '+n+' reittiä ('+nos+' ilman mtb:scale, '+nb+' pyöräkielto), '+np+' merkintää',8000);
 }
 $('fetchOsm').onclick=()=>{$('menu').close();fetchOsm()};
-$('clearOsm').onclick=()=>{OSMF=[];renderOsm();try{localStorage.removeItem('osmdata')}catch(e){}$('menu').close();toast('OSM-data tyhjennetty')};
+$('clearOsm').onclick=()=>{OSMF=[];OSMP=[];renderOsm();try{localStorage.removeItem('osmdata');localStorage.removeItem('osmpts')}catch(e){}$('menu').close();toast('OSM-data tyhjennetty')};
 map.on('click','osm_hit',e=>{
  const p=e.features[0].properties,row=(k,v)=>v?'<div><b>'+k+'</b> '+esc(v)+'</div>':'';
- new maplibregl.Popup({maxWidth:'240px'}).setLngLat(e.lngLat).setHTML('<div style="font:13px system-ui">'+row('',p.nm)+row('highway=',p.hw)+(row('mtb:scale=',p.ms)||'<div>mtb:scale puuttuu</div>')+row('width=',p.w)+row('surface=',p.sf)+row('tracktype=',p.tt)+'<div><a href="https://www.openstreetmap.org/way/'+p.id+'" target="_blank" rel="noopener">Avaa OSM:ssä (way '+p.id+')</a></div></div>').addTo(map);
+ new maplibregl.Popup({maxWidth:'240px'}).setLngLat(e.lngLat).setHTML('<div style="font:13px system-ui">'+row('',p.nm)+row('highway=',p.hw)+(row('mtb:scale=',p.ms)||'<div>mtb:scale puuttuu</div>')+row('width=',p.w)+row('surface=',p.sf)+row('tracktype=',p.tt)+row('bicycle=',p.bk)+row('fixme=',p.fx)+(p.ov?row('obstacle=','vegetation'):'')+'<div><a href="https://www.openstreetmap.org/way/'+p.id+'" target="_blank" rel="noopener">Avaa OSM:ssä (way '+p.id+')</a></div></div>').addTo(map);
 });
 $('op').value=OP;const opLbl=()=>{$('opv').textContent=OP>0?Math.round(OP*100)+' %':'piilossa'};opLbl();
 $('op').oninput=e=>{OP=+e.target.value;opLbl();localStorage.setItem('osmop',OP);applyOsmOp()};
