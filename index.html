@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="fi"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<title>Maastokartoitus V1.18</title>
+<title>Maastokartoitus V1.19</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.css">
 <style>
 html,body{margin:0;height:100%;font-family:system-ui,sans-serif;overflow:hidden}
@@ -16,7 +16,9 @@ button.on{color:#fff;background:#222}
 #panel button{width:100%;min-height:32px;max-height:54px;flex:1 1 0;font-size:14px;padding:0}
 #panel button[data-s]{background:var(--c);color:var(--t,#fff);border-color:var(--c);opacity:.55}
 #panel button[data-s].on{opacity:1;border-color:#000;box-shadow:0 0 0 2px #fff inset}
-#wet.on{background:#1f6fd1;border-color:#1f6fd1}#veg.on{background:#2e9e44;border-color:#2e9e44}
+#wet{color:#1f6fd1}#veg{color:#2e9e44}
+#wet.on{background:#1f6fd1;border-color:#1f6fd1;color:#fff}#veg.on{background:#2e9e44;border-color:#2e9e44;color:#fff}
+#panel button svg{width:24px;height:24px;display:block;margin:auto}
 #follow{position:absolute;left:6px;bottom:72px;z-index:5;width:46px;height:46px;font-size:20px}
 #fs{position:absolute;left:6px;bottom:20px;z-index:5;width:46px;height:46px;font-size:20px}
 #acc{position:absolute;left:6px;top:56px;font:11px system-ui;background:#fffd;padding:1px 6px;border-radius:4px;z-index:5}
@@ -47,7 +49,7 @@ dialog input{font-size:16px;padding:8px}
  <button data-s="0">S0</button><button data-s="1">S1</button>
  <button data-s="2">S2</button><button data-s="3">S3</button>
  <button data-s="4">S4</button><button data-s="" class="on">S–</button>
- <button id="wet">WET</button><button id="veg">VEG</button>
+ <button id="wet" title="WET (märkä)" aria-label="WET"><svg viewBox="0 0 24 24"><path d="M12 2C12 2 5 10 5 15a7 7 0 0014 0c0-5-7-13-7-13z" fill="currentColor"/></svg></button><button id="veg" title="VEG (kasvillisuus)" aria-label="VEG"><svg viewBox="0 0 24 24"><path d="M12 21C12 15 11 10 12 3M12 21C11 16 7 12 3 9M12 21C13 16 17 12 21 9M12 21C10 18 7 16 4 15M12 21C14 18 17 16 20 15" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round"/></svg></button>
  <button id="pit" style="font-size:11px">PITKOS</button>
  <button id="poiBtn" style="font-size:12px">📍POI</button>
 </div>
@@ -66,7 +68,7 @@ dialog input{font-size:16px;padding:8px}
  <button id="clearOsm">Tyhjennä OSM-data</button>
  <button id="settingsBtn">Asetukset</button>
  <button id="clearAll">Uusi projekti (tyhjennä)</button>
- <div style="text-align:center;font:11px system-ui;color:#666">Maastokartoitus V1.18</div>
+ <div style="text-align:center;font:11px system-ui;color:#666">Maastokartoitus V1.19</div>
  <button id="close">Sulje</button>
 </dialog>
 <dialog id="settings">
@@ -89,7 +91,7 @@ dialog input{font-size:16px;padding:8px}
 <script>
 const $=id=>document.getElementById(id);
 const LS=k=>localStorage.getItem(k);
-const SC={'0':'#2e9e44','1':'#f2c200','2':'#f28c00','3':'#d62828','4':'#c08bf0','':'#666666'};
+const SC={'0':'#2e9e44','1':'#ffe600','2':'#f28c00','3':'#d62828','4':'#c08bf0','':'#666666'};
 const DASH={'0':[8,1],'1':[6,1.5],'2':[4,2],'3':[3,3],'4':[1.5,4],'':[1,0]};
 const W={path:0.3,track:3};
 let LW=parseFloat(localStorage.getItem('lw'))||1;
@@ -172,7 +174,8 @@ function render(){
 // track width multiplier: path=1 -> 1.5..4px, track=2.5x -> ~3.7..10px
 const SVGB='<svg viewBox="0 0 24 24"><path d="M1 20q3-3 5.5 0t5.5 0 5.5 0 5.5 0" stroke="#1f6fd1" stroke-width="2" fill="none"/><path d="M2 14h20M4 14V8M12 14V8M20 14V8M3 8h18" stroke="#4e342e" stroke-width="2.2" stroke-linecap="round" fill="none"/></svg>';
 const SVGD='<svg viewBox="0 0 24 24"><path d="M1 7h6l3 11h4l3-11h6" stroke="#5d4037" stroke-width="2.2" fill="#bbdefb" stroke-linejoin="round"/><path d="M9.5 13q2.5 2 5 0" stroke="#1f6fd1" stroke-width="1.8" fill="none"/><path d="M3 4h18" stroke="#000" stroke-width="1.6" stroke-dasharray="3 2" fill="none"/></svg>';
-const ICON={fallen_tree:{label:'Kaatunut puu',h:'🪵'},bridge:{label:'Silta',h:SVGB},ditch:{label:'Ojan ylitys',h:SVGD},custom:{label:'POI',h:'📍'}};
+const SVGT='<svg viewBox="0 0 24 24"><g stroke="#3e2723" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"><path d="M10 12L8 6M8 6L5.5 5M8 6L10 3.5" fill="none" stroke-width="1.8"/><path d="M3 17L18 8L21 12L6 21Z" fill="#8d6e63"/><ellipse cx="19.5" cy="10" rx="2.2" ry="3.3" transform="rotate(-30 19.5 10)" fill="#e6c9a0"/></g></svg>';
+const ICON={fallen_tree:{label:'Kaatunut puu',h:SVGT},bridge:{label:'Silta',h:SVGB},ditch:{label:'Ojan ylitys',h:SVGD},custom:{label:'POI',h:'📍'}};
 let markers=[];
 function drawMarkers(){markers.forEach(m=>m.remove());markers=S.pois.map(p=>{const ic=ICON[p.type]||ICON.custom,e=document.createElement('div');e.className='poi';e.innerHTML=ic.h;e.title=p.name||ic.label;
  if(p.type==='custom'&&p.name){const l=document.createElement('span');l.className='lbl';l.textContent=p.name;e.appendChild(l)}
@@ -338,10 +341,10 @@ let OSMF=[];try{OSMF=JSON.parse(LS('osmdata')||'[]')}catch(e){}
 let OSMP=[];try{OSMP=JSON.parse(LS('osmpts')||'[]')}catch(e){}
 let osmMk=[];
 let OP=parseFloat(LS('osmop'));if(isNaN(OP))OP=0.85;
-const OSMC=['match',['get','sc'],'0','#2e9e44','1','#f2c200','2','#f28c00','3','#d62828','4','#c08bf0','5','#8e24aa','6','#4a148c','#8a8a8a'];
+const OSMC=['match',['get','sc'],'0','#2e9e44','1','#ffe600','2','#f28c00','3','#d62828','4','#c08bf0','5','#8e24aa','6','#4a148c','#8a8a8a'];
 const OI={
  gate:{l:'Este (portti/puomi)',h:'<svg viewBox="0 0 24 24"><path d="M3 4v16M21 4v16M3 8h18M3 16h18M3 8l18 8M3 16l18-8" stroke="#333" stroke-width="2" fill="none"/></svg>'},
- fallen_tree:{l:'Kaatunut puu',h:'🪵'},
+ fallen_tree:{l:'Kaatunut puu',h:SVGT},
  ford:{l:'Ojan/puron ylitys (ford)',h:SVGD},
  vegetation:{l:'Kasvillisuus tiellä',h:'🌿'},
  shelter:{l:'Laavu/kota',h:'<svg viewBox="0 0 24 24"><path d="M2 12L12 4l10 8z" fill="#8d6e63" stroke="#4e342e" stroke-width="1.5"/><path d="M5 12v8M19 12v8" stroke="#4e342e" stroke-width="2"/></svg>'},
