@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="fi"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<title>Maastokartoitus V1.19</title>
+<title>Maastokartoitus V1.20</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.css">
 <style>
 html,body{margin:0;height:100%;font-family:system-ui,sans-serif;overflow:hidden}
@@ -68,12 +68,12 @@ dialog input{font-size:16px;padding:8px}
  <button id="clearOsm">Tyhjennä OSM-data</button>
  <button id="settingsBtn">Asetukset</button>
  <button id="clearAll">Uusi projekti (tyhjennä)</button>
- <div style="text-align:center;font:11px system-ui;color:#666">Maastokartoitus V1.19</div>
+ <div style="text-align:center;font:11px system-ui;color:#666">Maastokartoitus V1.20</div>
  <button id="close">Sulje</button>
 </dialog>
 <dialog id="settings">
  <div style="font-weight:700;margin-bottom:4px">Asetukset</div>
- <select id="src" style="font-size:16px;padding:8px;width:100%"><option value="mml">MML maastokartta (API-avain)</option><option value="mmltausta">MML taustakartta (API-avain)</option><option value="kapsiwms">Kapsi: MML peruskartta (WMS, kokeilu)</option><option value="kapsitausta">Kapsi: MML taustakartta (WMS, kokeilu)</option><option value="osm">OpenStreetMap</option></select>
+ <select id="src" style="font-size:16px;padding:8px;width:100%"><option value="mml">MML maastokartta (API-avain)</option><option value="mmltausta">MML taustakartta (API-avain)</option><option value="mmlorto">MML ilmakuva (API-avain)</option><option value="kapsiwms">Kapsi: MML peruskartta (WMS, kokeilu)</option><option value="kapsitausta">Kapsi: MML taustakartta (WMS, kokeilu)</option><option value="kapsiorto">Kapsi: MML ilmakuva (WMS)</option><option value="osm">OpenStreetMap</option></select>
  <input id="key" placeholder="MML API-avain">
  <label><input type="checkbox" id="swap" style="display:inline;width:auto"> Vaihda WET/VEG puolet</label>
  <label><input type="checkbox" id="rot" style="display:inline;width:auto"> Salli kartan kierto</label>
@@ -83,6 +83,13 @@ dialog input{font-size:16px;padding:8px}
  <input type="range" id="lw" min="0.5" max="3" step="0.25" value="1">
  <label style="display:block;margin-top:8px">OSM-reittien näkyvyys: <b id="opv"></b></label>
  <input type="range" id="op" min="0" max="1" step="0.1">
+ <div style="font-weight:700;margin-top:12px">Offline-karttamuisti</div>
+ <div id="tcInfo" style="font:12px system-ui;color:#444;margin:4px 0">Lasketaan…</div>
+ <button id="tcRefresh">Päivitä näkymän tiilet</button>
+ <button id="tcOld">Poista yli 30 pv vanhat tiilet</button>
+ <button id="tcClear">Poista kaikki tiilet</button>
+ <label style="display:block;margin-top:6px">Muistin enimmäiskoko (tiiliä)</label>
+ <select id="tmax" style="font-size:16px;padding:8px;width:100%"><option value="1000">1 000 (n. 30 Mt)</option><option value="2500">2 500 (n. 75 Mt)</option><option value="5000">5 000 (n. 150 Mt)</option><option value="10000">10 000 (n. 300 Mt)</option></select>
  <button id="closeSet">Sulje</button>
 </dialog>
 <input type="file" id="file" accept=".geojson,.json" hidden>
@@ -95,7 +102,8 @@ const SC={'0':'#2e9e44','1':'#ffe600','2':'#f28c00','3':'#d62828','4':'#c08bf0',
 const DASH={'0':[8,1],'1':[6,1.5],'2':[4,2],'3':[3,3],'4':[1.5,4],'':[1,0]};
 const W={path:0.3,track:3};
 let LW=parseFloat(localStorage.getItem('lw'))||1;
-let TS=parseInt(localStorage.getItem('ts'))||256;
+let TS=256;
+const getTS=k=>{const v=parseInt(localStorage.getItem('ts:'+k));if(v)return v;if(k==='mmlorto'||k==='kapsiorto')return 256;return parseInt(localStorage.getItem('ts'))||256};
 const tw=m=>['interpolate',['linear'],['zoom'],12,['*',1.5*m,['get','wm']],20,['*',4*m,['get','wm']]];
 document.querySelectorAll('[data-s]').forEach(b=>{b.style.setProperty('--c',SC[b.dataset.s]);if(['1','2','4'].includes(b.dataset.s))b.style.setProperty('--t','#000')});
 let S;
@@ -115,10 +123,12 @@ const SRC={
  mmltausta:[`https://avoin-karttakuva.maanmittauslaitos.fi/avoin/wmts/1.0.0/taustakartta/default/WGS84_Pseudo-Mercator/{z}/{y}/{x}.png?api-key=${key}`,'© Maanmittauslaitos (CC BY 4.0)'],
  kapsiwms:['https://tiles.kartat.kapsi.fi/peruskartta?FORMAT=image/jpeg&VERSION=1.1.1&SERVICE=WMS&REQUEST=GetMap&STYLES=&SRS=EPSG:3857&WIDTH=256&HEIGHT=256&BBOX={bbox-epsg-3857}','© Maanmittauslaitos via Kapsi ry',null,19],
  kapsitausta:['https://tiles.kartat.kapsi.fi/taustakartta?FORMAT=image/jpeg&VERSION=1.1.1&SERVICE=WMS&REQUEST=GetMap&STYLES=&SRS=EPSG:3857&WIDTH=256&HEIGHT=256&BBOX={bbox-epsg-3857}','© Maanmittauslaitos via Kapsi ry',null,19],
+ mmlorto:[`https://avoin-karttakuva.maanmittauslaitos.fi/avoin/wmts/1.0.0/ortokuva/default/WGS84_Pseudo-Mercator/{z}/{y}/{x}.jpg?api-key=${key}`,'© Maanmittauslaitos (CC BY 4.0)'],
+ kapsiorto:['https://tiles.kartat.kapsi.fi/ortokuva?FORMAT=image/jpeg&VERSION=1.1.1&SERVICE=WMS&REQUEST=GetMap&STYLES=&SRS=EPSG:3857&WIDTH=256&HEIGHT=256&BBOX={bbox-epsg-3857}','© Maanmittauslaitos via Kapsi ry',null,19],
  osm:['https://tile.openstreetmap.org/{z}/{x}/{y}.png','© OpenStreetMap']};
 let src=LS('src');if(!SRC[src])src=key?'mml':'kapsiwms';
-if((src==='mml'||src==='mmltausta')&&!key){src='kapsiwms';setTimeout(()=>toast('MML-kartta vaatii API-avaimen (valikko). Käytetään Kapsia.',6000),500)}
-$('src').value=src;
+if((src==='mml'||src==='mmltausta'||src==='mmlorto')&&!key){src=src==='mmlorto'?'kapsiorto':'kapsiwms';setTimeout(()=>toast('MML-kartta vaatii API-avaimen (valikko). Käytetään Kapsia.',6000),500)}
+$('src').value=src;TS=getTS(src);
 const [tiles,attr,scheme,maxz]=SRC[src];
 let sv=null;try{sv=JSON.parse(LS('view')||'null')}catch(e){}
 const map=new maplibregl.Map({container:'map',center:sv?sv.c:[25.0,60.2],zoom:sv?sv.z:13,attributionControl:{compact:true},
@@ -243,20 +253,20 @@ document.addEventListener('visibilitychange',async()=>{if(document.visibilitySta
 // --- Menu / settings ---
 $('menuBtn').onclick=()=>$('menu').showModal();$('close').onclick=()=>$('menu').close();
 function applyBase(k){
- if((k==='mml'||k==='mmltausta')&&!key){toast('MML-kartta vaatii API-avaimen (asetukset). Käytetään Kapsia.',5000);k='kapsiwms'}
- const [t,a,sch,mz]=SRC[k];$('src').value=k;
+ if((k==='mml'||k==='mmltausta'||k==='mmlorto')&&!key){toast('MML-kartta vaatii API-avaimen (asetukset). Käytetään Kapsia.',5000);k=k==='mmlorto'?'kapsiorto':'kapsiwms'}
+ const [t,a,sch,mz]=SRC[k];$('src').value=k;TS=getTS(k);$('ts').value=String(TS);
  if(map.getLayer('base'))map.removeLayer('base');if(map.getSource('base'))map.removeSource('base');
  map.addSource('base',{type:'raster',tiles:[t],tileSize:TS,maxzoom:mz||17,scheme:sch||'xyz',attribution:a});
  map.addLayer({id:'base',type:'raster',source:'base'},map.getLayer('gps')?'gps':undefined);
 }
 $('src').onchange=e=>{localStorage.setItem('src',e.target.value);applyBase(e.target.value)};
-$('settingsBtn').onclick=()=>{$('menu').close();$('settings').showModal()};
+$('settingsBtn').onclick=()=>{$('menu').close();$('settings').showModal();tcStats()};
 $('closeSet').onclick=()=>$('settings').close();
 function applyRot(){if($('rot').checked){map.dragRotate.enable();map.touchZoomRotate.enableRotation()}else{map.dragRotate.disable();map.touchZoomRotate.disableRotation();if(map.getBearing())map.easeTo({bearing:0,duration:300})}}
 $('rot').checked=localStorage.getItem('rot')==='1';applyRot();
 $('rot').onchange=()=>{localStorage.setItem('rot',$('rot').checked?'1':'0');applyRot()};
 function applyLW(){for(const k of Object.keys(SC))if(map.getLayer('trail'+k))map.setPaintProperty('trail'+k,'line-width',tw(LW))}
-$('ts').value=String(TS);$('ts').onchange=e=>{TS=+e.target.value;localStorage.setItem('ts',TS);applyBase($('src').value)};
+$('ts').value=String(TS);$('ts').onchange=e=>{TS=+e.target.value;localStorage.setItem('ts:'+$('src').value,TS);applyBase($('src').value)};
 $('lw').value=LW;$('lwv').textContent=LW+'×';
 $('lw').oninput=e=>{LW=+e.target.value;$('lwv').textContent=LW+'×';localStorage.setItem('lw',LW);applyLW()};
 $('key').onchange=e=>{localStorage.setItem('mmlkey',e.target.value.trim());location.reload()};
@@ -422,6 +432,50 @@ map.on('click','osm_hit',e=>{
 });
 $('op').value=OP;const opLbl=()=>{$('opv').textContent=OP>0?Math.round(OP*100)+' %':'piilossa'};opLbl();
 $('op').oninput=e=>{OP=+e.target.value;opLbl();localStorage.setItem('osmop',OP);applyOsmOp()};
+// --- Offline tile memory (service worker sw.js + Cache API) ---
+const TC='mk-tiles-v1';
+let TMAX=parseInt(localStorage.getItem('tmax'))||5000;
+function swMsg(m){if(navigator.serviceWorker)navigator.serviceWorker.ready.then(rg=>rg.active&&rg.active.postMessage(m)).catch(()=>{})}
+if('serviceWorker' in navigator){
+ navigator.serviceWorker.register('sw.js').then(()=>{swMsg({max:TMAX});if(navigator.storage&&navigator.storage.persist)navigator.storage.persist()}).catch(()=>{});
+}
+async function eachTile(fn){
+ const c=await caches.open(TC),ks=await c.keys();
+ for(let i=0;i<ks.length;i+=200){
+  const part=ks.slice(i,i+200),rs=await Promise.all(part.map(k=>c.match(k,{ignoreVary:true})));
+  for(let j=0;j<part.length;j++)await fn(c,part[j],rs[j]);
+ }
+ return ks.length;
+}
+async function tcStats(){
+ const el=$('tcInfo');
+ if(!('serviceWorker' in navigator)||!window.caches){el.textContent='Offline-muisti vaatii HTTPS-osoitteen (nyt ei käytössä).';return}
+ el.textContent='Lasketaan…';
+ try{
+  let bytes=0,oldest=Infinity;
+  const n=await eachTile(async(c,k,r)=>{if(r){bytes+=+r.headers.get('x-sw-size')||0;const t=+r.headers.get('x-sw-at')||0;if(t&&t<oldest)oldest=t}});
+  const per=navigator.storage&&navigator.storage.persisted?await navigator.storage.persisted():false;
+  el.textContent=(navigator.serviceWorker.controller?'Offline-muisti käytössä. ':'Offline-muisti ei vielä aktiivinen (lataa sivu uudelleen, tarvitaan sw.js). ')+'Tiiliä: '+n+', noin '+(bytes/1048576).toFixed(1)+' Mt'+(oldest<Infinity?', vanhin '+new Date(oldest).toLocaleDateString('fi-FI'):'')+'. Pysyvä tallennus: '+(per?'kyllä':'ei')+'.';
+ }catch(e){el.textContent='Tilastoa ei saatu: '+e.message}
+}
+$('tcRefresh').onclick=()=>{
+ if(!navigator.serviceWorker||!navigator.serviceWorker.controller)return toast('Offline-muisti ei ole aktiivinen',4000);
+ swMsg({refresh:true});$('settings').close();toast('Päivitetään näkymän tiilet…',20000);
+ applyBase($('src').value);
+ map.once('idle',()=>{swMsg({refresh:false});toast('Näkymän tiilet päivitetty',3000)});
+};
+$('tcOld').onclick=async()=>{
+ const cut=Date.now()-30*864e5;let d=0;
+ try{await eachTile(async(c,k,r)=>{const t=r?+r.headers.get('x-sw-at')||0:0;if(!r||t<cut){await c.delete(k);d++}})}catch(e){}
+ toast(d+' vanhaa tiiltä poistettu',3000);tcStats();
+};
+$('tcClear').onclick=async()=>{
+ if(!confirm('Poistetaanko kaikki tallennetut karttatiilet?'))return;
+ try{await caches.delete(TC)}catch(e){}
+ toast('Kaikki tiilet poistettu',3000);tcStats();
+};
+$('tmax').value=String(TMAX);
+$('tmax').onchange=e=>{TMAX=+e.target.value;localStorage.setItem('tmax',TMAX);swMsg({max:TMAX})};
 // --- Autosave ---
 function save(){try{localStorage.setItem('proj',JSON.stringify({S:{...S,rec:false},name:$('name').value}))}catch(e){}}
 try{const r=JSON.parse(LS('proj')||'null');if(r&&r.S.track.length){Object.assign(S,r.S,{rec:false,wet:false,veg:false,pit:false});$('name').value=r.name||'';map.on('load',()=>{drawMarkers();toast('Edellinen projekti palautettu')})}}catch(e){}
