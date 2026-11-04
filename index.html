@@ -1,13 +1,15 @@
 <!DOCTYPE html>
 <html lang="fi"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<title>Maastokartoitus V1.20</title>
+<title>Maastokartoitus V1.21</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.css">
 <style>
 html,body{margin:0;height:100%;font-family:system-ui,sans-serif;overflow:hidden}
 #map{position:absolute;inset:0}
 #top{position:absolute;top:0;left:0;right:0;display:flex;gap:4px;padding:4px;z-index:5}#top button{min-width:48px}
-#dist{align-self:center;font:700 18px system-ui;background:#fffd;padding:6px 7px;border-radius:6px;white-space:nowrap}
+#hud{position:absolute;left:6px;top:56px;z-index:5;display:flex;flex-direction:column;gap:3px;align-items:flex-start;pointer-events:none}
+#hud>div{background:rgba(255,255,255,.75);padding:1px 7px;border-radius:6px;white-space:nowrap}
+#dist,#spd{font:700 18px system-ui}
 #top input{flex:1;min-width:0;font-size:14px;padding:6px;border:1px solid #888;border-radius:8px}
 button{font:600 14px system-ui;border:1.5px solid #333;background:#fff;border-radius:8px;min-height:40px;padding:0 4px}
 button.on{color:#fff;background:#222}
@@ -19,9 +21,14 @@ button.on{color:#fff;background:#222}
 #wet{color:#1f6fd1}#veg{color:#2e9e44}
 #wet.on{background:#1f6fd1;border-color:#1f6fd1;color:#fff}#veg.on{background:#2e9e44;border-color:#2e9e44;color:#fff}
 #panel button svg{width:24px;height:24px;display:block;margin:auto}
-#follow{position:absolute;left:6px;bottom:72px;z-index:5;width:46px;height:46px;font-size:20px}
+#follow{position:absolute;left:6px;bottom:124px;z-index:5;width:46px;height:46px;font-size:20px}
+#mapBtn{position:absolute;left:6px;bottom:72px;z-index:5;width:46px;height:46px;font-size:20px}
 #fs{position:absolute;left:6px;bottom:20px;z-index:5;width:46px;height:46px;font-size:20px}
-#acc{position:absolute;left:6px;top:56px;font:11px system-ui;background:#fffd;padding:1px 6px;border-radius:4px;z-index:5}
+#wet,#veg,#pit,#poiBtn,#follow,#fs,#mapBtn{background:rgba(255,255,255,.5)}
+#follow.on{background:rgba(34,34,34,.7)}
+#undo{position:absolute;left:50%;top:104px;transform:translateX(-50%);z-index:9;background:#222;color:#fff;border-color:#222;padding:0 18px}
+#undo[hidden]{display:none}
+#acc{font:11px system-ui;pointer-events:auto}
 #toast{position:absolute;left:50%;top:70px;transform:translateX(-50%);background:#000c;color:#fff;padding:8px 14px;border-radius:8px;z-index:9;display:none}
 dialog{border-radius:12px;max-width:340px;width:90%;max-height:90vh;overflow:auto}
 dialog button,dialog input{display:block;width:100%;margin:6px 0;box-sizing:border-box}
@@ -42,8 +49,8 @@ dialog input{font-size:16px;padding:8px}
 #pit.on{background:#8d5524;border-color:#8d5524}
 </style></head><body>
 <div id="map"></div><div id="cross"></div>
-<div id="top"><input id="name" placeholder="Projektin nimi"><span id="dist">0.00 km</span><button id="rec">● REC</button><button id="menuBtn">☰</button></div>
-<button id="follow" class="on">◎</button><button id="fs">⛶</button>
+<div id="top"><input id="name" placeholder="Projektin nimi"><button id="rec">● REC</button><button id="menuBtn">☰</button></div>
+<button id="follow" class="on">◎</button><button id="mapBtn" title="Kartta">🗺</button><button id="fs">⛶</button>
 <div id="panel">
  <button id="hwPath" class="on">PATH</button><button id="hwTrack">TRACK</button>
  <button data-s="0">S0</button><button data-s="1">S1</button>
@@ -53,8 +60,18 @@ dialog input{font-size:16px;padding:8px}
  <button id="pit" style="font-size:11px">PITKOS</button>
  <button id="poiBtn" style="font-size:12px">📍POI</button>
 </div>
-<div id="acc">GPS: haetaan…</div>
+<div id="hud"><div id="dist">0.00 km</div><div id="spd">– km/h</div><div id="acc">GPS: haetaan…</div></div>
 <div id="poiSheet" hidden><div id="poiWhere" style="font:700 13px system-ui;text-align:center"></div><div id="poiList" style="display:flex;flex-direction:column;gap:6px"></div><div style="display:flex;gap:6px"><input id="poiName" placeholder="Muu POI, esim. Laavu"><button id="poiSave" style="min-width:52px;text-align:center">OK</button></div><button id="poiCancel">Peruuta</button></div>
+<button id="undo" hidden>Kumoa poisto</button>
+<dialog id="poiEdit">
+ <div id="peTitle" style="font-weight:700;margin-bottom:6px"></div>
+ <select id="peType" style="font-size:16px;padding:8px;width:100%"><option value="fallen_tree">Kaatunut puu</option><option value="bridge">Silta</option><option value="ditch">Ojan ylitys</option><option value="custom">Muu (nimi)</option></select>
+ <input id="peName" placeholder="Nimi (valinnainen)">
+ <button id="peSave">Tallenna muutokset</button>
+ <button id="peMove">Siirrä kartan keskipisteeseen</button>
+ <button id="peDel" style="color:#c62828;border-color:#c62828">Poista</button>
+ <button id="peClose">Sulje</button>
+</dialog>
 <div id="toast"></div>
 <dialog id="menu">
  <button id="expGpx">Tallenna GPX</button>
@@ -68,19 +85,25 @@ dialog input{font-size:16px;padding:8px}
  <button id="clearOsm">Tyhjennä OSM-data</button>
  <button id="settingsBtn">Asetukset</button>
  <button id="clearAll">Uusi projekti (tyhjennä)</button>
- <div style="text-align:center;font:11px system-ui;color:#666">Maastokartoitus V1.20</div>
+ <div style="text-align:center;font:11px system-ui;color:#666">Maastokartoitus V1.21</div>
  <button id="close">Sulje</button>
+</dialog>
+<dialog id="mapdlg">
+ <div style="font-weight:700;margin-bottom:4px">Kartta</div>
+ <select id="src" style="font-size:16px;padding:8px;width:100%"><option value="mml">MML maastokartta (API-avain)</option><option value="mmltausta">MML taustakartta (API-avain)</option><option value="mmlorto">MML ilmakuva (API-avain)</option><option value="kapsiwms">Kapsi: MML peruskartta (WMS, kokeilu)</option><option value="kapsitausta">Kapsi: MML taustakartta (WMS, kokeilu)</option><option value="kapsiorto">Kapsi: MML ilmakuva (WMS)</option><option value="osm">OpenStreetMap</option></select>
+ <input id="key" placeholder="MML API-avain">
+ <label><input type="checkbox" id="rot" style="display:inline;width:auto"> Salli kartan kierto</label>
+ <button id="closeMap">Sulje</button>
 </dialog>
 <dialog id="settings">
  <div style="font-weight:700;margin-bottom:4px">Asetukset</div>
- <select id="src" style="font-size:16px;padding:8px;width:100%"><option value="mml">MML maastokartta (API-avain)</option><option value="mmltausta">MML taustakartta (API-avain)</option><option value="mmlorto">MML ilmakuva (API-avain)</option><option value="kapsiwms">Kapsi: MML peruskartta (WMS, kokeilu)</option><option value="kapsitausta">Kapsi: MML taustakartta (WMS, kokeilu)</option><option value="kapsiorto">Kapsi: MML ilmakuva (WMS)</option><option value="osm">OpenStreetMap</option></select>
- <input id="key" placeholder="MML API-avain">
  <label><input type="checkbox" id="swap" style="display:inline;width:auto"> Vaihda WET/VEG puolet</label>
- <label><input type="checkbox" id="rot" style="display:inline;width:auto"> Salli kartan kierto</label>
  <label style="display:block;margin-top:8px">Kartan tarkkuus (pienempi = tarkempi pohjakartta kauempaa, mutta pienempi teksti ja enemmän dataa)</label>
  <select id="ts" style="font-size:16px;padding:8px;width:100%"><option value="256">Normaali (256)</option><option value="192">Tarkempi (192)</option><option value="128">Tarkka (128)</option><option value="96">Hyvin tarkka (96)</option><option value="64">Tarkin (64)</option></select>
  <label style="display:block;margin-top:8px">Jäljen viivan paksuus: <b id="lwv">1×</b></label>
  <input type="range" id="lw" min="0.5" max="3" step="0.25" value="1">
+ <label style="display:block;margin-top:8px">Trackin leveys pathiin verrattuna</label>
+ <select id="tr" style="font-size:16px;padding:8px;width:100%"><option value="1.5">1,5×</option><option value="2">2×</option><option value="2.5">2,5×</option><option value="3">3×</option></select>
  <label style="display:block;margin-top:8px">OSM-reittien näkyvyys: <b id="opv"></b></label>
  <input type="range" id="op" min="0" max="1" step="0.1">
  <div style="font-weight:700;margin-top:12px">Offline-karttamuisti</div>
@@ -102,6 +125,7 @@ const SC={'0':'#2e9e44','1':'#ffe600','2':'#f28c00','3':'#d62828','4':'#c08bf0',
 const DASH={'0':[8,1],'1':[6,1.5],'2':[4,2],'3':[3,3],'4':[1.5,4],'':[1,0]};
 const W={path:0.3,track:3};
 let LW=parseFloat(localStorage.getItem('lw'))||1;
+let TR=parseFloat(localStorage.getItem('tr'))||2;
 let TS=256;
 const getTS=k=>{const v=parseInt(localStorage.getItem('ts:'+k));if(v)return v;if(k==='mmlorto'||k==='kapsiorto')return 256;return parseInt(localStorage.getItem('ts'))||256};
 const tw=m=>['interpolate',['linear'],['zoom'],12,['*',1.5*m,['get','wm']],20,['*',4*m,['get','wm']]];
@@ -174,7 +198,7 @@ function render(){
  if(!map.getSource('trail'))return;
  const gs=[];let cs=[];S.track.forEach(p=>{if(p.g&&cs.length){gs.push(cs);cs=[]}cs.push([p.lon,p.lat])});gs.push(cs);
  map.getSource('gps').setData({type:'FeatureCollection',features:gs.filter(x=>x.length>1).map(x=>line(x,{}))});
- map.getSource('trail').setData({type:'FeatureCollection',features:S.trail.filter(s=>s.c.length>1).map(s=>line(s.c,{sc:s.scale,wm:s.hw==='track'?W.track/W.path/4:1,hw:s.hw}))});
+ map.getSource('trail').setData({type:'FeatureCollection',features:S.trail.filter(s=>s.c.length>1).map(s=>line(s.c,{sc:s.scale,wm:s.hw==='track'?TR:1,hw:s.hw}))});
  map.getSource('wet').setData({type:'FeatureCollection',features:S.wetS.filter(s=>s.c.length>1).map(s=>line(s.c,{}))});
   map.getSource('pit').setData({type:'FeatureCollection',features:S.pitS.filter(s=>s.c.length>1).map(s=>line(s.c,{}))});
  map.getSource('veg').setData({type:'FeatureCollection',features:S.vegS.filter(s=>s.c.length>1).map(s=>line(s.c,{}))});
@@ -187,14 +211,22 @@ const SVGD='<svg viewBox="0 0 24 24"><path d="M1 7h6l3 11h4l3-11h6" stroke="#5d4
 const SVGT='<svg viewBox="0 0 24 24"><g stroke="#3e2723" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"><path d="M10 12L8 6M8 6L5.5 5M8 6L10 3.5" fill="none" stroke-width="1.8"/><path d="M3 17L18 8L21 12L6 21Z" fill="#8d6e63"/><ellipse cx="19.5" cy="10" rx="2.2" ry="3.3" transform="rotate(-30 19.5 10)" fill="#e6c9a0"/></g></svg>';
 const ICON={fallen_tree:{label:'Kaatunut puu',h:SVGT},bridge:{label:'Silta',h:SVGB},ditch:{label:'Ojan ylitys',h:SVGD},custom:{label:'POI',h:'📍'}};
 let markers=[];
-function drawMarkers(){markers.forEach(m=>m.remove());markers=S.pois.map(p=>{const ic=ICON[p.type]||ICON.custom,e=document.createElement('div');e.className='poi';e.innerHTML=ic.h;e.title=p.name||ic.label;
+function drawMarkers(){markers.forEach(m=>m.remove());markers=S.pois.map((p,i)=>{const ic=ICON[p.type]||ICON.custom,e=document.createElement('div');e.className='poi';e.innerHTML=ic.h;e.title=p.name||ic.label;
  if(p.type==='custom'&&p.name){const l=document.createElement('span');l.className='lbl';l.textContent=p.name;e.appendChild(l)}
+ e.addEventListener('click',ev=>{ev.stopPropagation();openPoiEdit(i)});
  return new maplibregl.Marker({element:e}).setLngLat(p.c).addTo(map)})}
 
 // --- GPS ---
 const dotEl=document.createElement('div');dotEl.style.cssText='width:18px;height:18px;border-radius:50%;background:#1a73e8;border:3px solid #fff;box-shadow:0 0 4px #000';
 const dot=new maplibregl.Marker({element:dotEl});let dotOn=false,follow=true,first=true;
 function setFollow(v){follow=v;$('follow').classList.toggle('on',v);$('cross').style.display=v?'none':'block'}
+let lastPos=null;
+function updSpeed(p,c){
+ let v=p.coords.speed;
+ if(v==null||isNaN(v)){v=null;if(lastPos&&p.timestamp>lastPos.t){const dt=(p.timestamp-lastPos.t)/1000;if(dt>0.3&&dt<15)v=hav(lastPos.c,c)/dt}}
+ lastPos={c,t:p.timestamp};
+ $('spd').textContent=v==null?'– km/h':(v*3.6).toFixed(1)+' km/h';
+}
 function gpsErr(e){
  const m=e.code===1?'Sijaintilupa estetty. Chrome: ⋮ → Asetukset → Sivustojen asetukset → Sijainti → salli tälle sivulle. Tarkista myös Androidin asetuksista, että Chromella on sijaintilupa ja sijainti on päällä.'
   :e.code===2?'Paikannus ei onnistu (sijainti pois päältä tai ei signaalia).':'Paikannus aikakatkaistiin, yritetään uudelleen…';
@@ -202,7 +234,7 @@ function gpsErr(e){
 $('acc').onclick=()=>navigator.geolocation.getCurrentPosition(()=>location.reload(),gpsErr,{enableHighAccuracy:true});
 if(!window.isSecureContext||location.protocol==='file:'||location.protocol==='content:')toast('Sivu on avattu tiedostona eikä HTTPS-osoitteesta, joten paikannus ei toimi. Julkaise sivu esim. GitHub Pagesissa.',12000);
 navigator.geolocation.watchPosition(p=>{
- const c=[p.coords.longitude,p.coords.latitude];S.last=c;$('acc').textContent='GPS ±'+Math.round(p.coords.accuracy)+' m';
+ const c=[p.coords.longitude,p.coords.latitude];S.last=c;updSpeed(p,c);$('acc').textContent='GPS ±'+Math.round(p.coords.accuracy)+' m';
  dot.setLngLat(c);if(!dotOn){dot.addTo(map);dotOn=true}
  if(follow)map.easeTo({center:c,zoom:first?Math.max(map.getZoom(),16):map.getZoom(),duration:500});first=false;
  if(S.rec){
@@ -348,6 +380,7 @@ $('gpxfile').onchange=async e=>{
 };
 // --- OSM path/track layer (Overpass, read-only) ---
 let OSMF=[];try{OSMF=JSON.parse(LS('osmdata')||'[]')}catch(e){}
+OSMF.forEach(f=>{f.properties.wm=f.properties.hw==='track'?TR:1});
 let OSMP=[];try{OSMP=JSON.parse(LS('osmpts')||'[]')}catch(e){}
 let osmMk=[];
 let OP=parseFloat(LS('osmop'));if(isNaN(OP))OP=0.85;
@@ -389,39 +422,59 @@ function renderOsm(){
  if(!map.getSource('osm'))return;
  map.getSource('osm').setData({type:'FeatureCollection',features:OSMF});drawOsmMarkers();applyOsmOp();
 }
+const OVP=['https://overpass-api.de/api/interpreter','https://overpass.kumi.systems/api/interpreter','https://overpass.private.coffee/api/interpreter'];
+async function overpass(q){
+ const ctls=[],errs=[];
+ const one=ep=>{
+  const ctl=new AbortController();ctls.push(ctl);
+  const timer=setTimeout(()=>ctl.abort(),30000);
+  return fetch(ep,{method:'POST',body:'data='+encodeURIComponent(q),headers:{'Content-Type':'application/x-www-form-urlencoded'},signal:ctl.signal})
+   .then(async res=>{
+    if(!res.ok)throw new Error('HTTP '+res.status);
+    const j=await res.json();
+    if(!j||!Array.isArray(j.elements))throw new Error('virheellinen vastaus');
+    if(j.remark&&!j.elements.length)throw new Error(String(j.remark).slice(0,60));
+    return j;
+   })
+   .catch(e=>{errs.push(new URL(ep).hostname+': '+(ctl.signal.aborted?'ei vastausta 30 s kuluessa':e.message));throw e})
+   .finally(()=>clearTimeout(timer));
+ };
+ try{const j=await Promise.any(OVP.map(one));ctls.forEach(c=>c.abort());return j}
+ catch(e){throw new Error(errs.join('; ')||e.message)}
+}
+function saveOsm(){try{localStorage.setItem('osmdata',JSON.stringify(OSMF));localStorage.setItem('osmpts',JSON.stringify(OSMP))}catch(e){toast('OSM-data ei mahdu muistiin ja katoaa sivun uudelleenlatauksessa',6000)}}
 async function fetchOsm(){
+ try{await fetchOsmRun()}catch(e){toast('OSM-haku epäonnistui: '+e.message,10000)}
+}
+async function fetchOsmRun(){
  if(map.getZoom()<12)return toast('Zoomaa lähemmäs (vähintään taso 12) ennen hakua',4000);
  const b=map.getBounds(),bb=[b.getSouth(),b.getWest(),b.getNorth(),b.getEast()].map(v=>v.toFixed(5)).join(',');
- const q='[out:json][timeout:30];way["highway"~"^(path|track)$"]('+bb+')->.w;.w out geom;(node(w.w)["barrier"="gate"];node(w.w)["obstacle"~"^(fallen_tree|vegetation)$"];node(w.w)["ford"="yes"];node(w.w)["fixme"];nwr["amenity"="shelter"]('+bb+'););out center;';
- toast('Haetaan OSM-tietoja…',40000);
- let data=null,err='';
- for(const ep of ['https://overpass-api.de/api/interpreter','https://overpass.kumi.systems/api/interpreter']){
-  try{
-   const ctl=new AbortController(),t=setTimeout(()=>ctl.abort(),40000);
-   const res=await fetch(ep,{method:'POST',body:'data='+encodeURIComponent(q),headers:{'Content-Type':'application/x-www-form-urlencoded'},signal:ctl.signal});
-   clearTimeout(t);if(!res.ok)throw new Error('HTTP '+res.status);
-   data=await res.json();break;
-  }catch(e){err=e.message}
- }
- if(!data)return toast('OSM-haku epäonnistui: '+err,7000);
- if(data.remark&&!data.elements.length)return toast('Overpass: '+data.remark,8000);
- const m=new Map(OSMF.map(f=>[f.properties.id,f])),pm=new Map(OSMP.map(p=>[p.ty+p.id,p]));let n=0,nos=0,np=0,nb=0;
- for(const w of data.elements){
+ const WQ='way["highway"~"^(path|track)$"]('+bb+')';
+ toast('Haetaan reittejä (1/2)…',35000);
+ const dA=await overpass('[out:json][timeout:25];'+WQ+';out geom;');
+ const m=new Map(OSMF.map(f=>[f.properties.id,f])),pm=new Map(OSMP.map(p=>[p.ty+p.id,p]));let n=0,nos=0,nb=0;
+ for(const w of dA.elements){
   const t=w.tags||{};
-  if(w.type==='way'&&w.geometry&&w.geometry.length>1&&/^(path|track)$/.test(t.highway||'')){
-   const sc=((t['mtb:scale']||'').match(/^\d/)||[''])[0];
-   m.set(w.id,{type:'Feature',properties:{id:w.id,hw:t.highway,sc,ms:t['mtb:scale']||'',wm:t.highway==='track'?1.6:1,w:t.width||'',sf:t.surface||'',tt:t.tracktype||'',nm:t.name||'',bk:t.bicycle||'',mud:t.surface==='mud'?1:0,ov:t.obstacle==='vegetation'?1:0,fx:t.fixme||''},
-    geometry:{type:'LineString',coordinates:w.geometry.map(p=>[+p.lon.toFixed(6),+p.lat.toFixed(6)])}});
-   n++;if(!sc)nos++;if(t.bicycle==='no'||t.bicycle==='private')nb++;
-   if(t.fixme){const g=w.geometry[Math.floor(w.geometry.length/2)];pm.set('way'+w.id,{k:pointKind({fixme:t.fixme}),c:[+g.lon.toFixed(6),+g.lat.toFixed(6)],id:w.id,ty:'way',tg:pick(t)});np++}
-  }else{
-   const c=w.type==='node'?[w.lon,w.lat]:(w.center?[w.center.lon,w.center.lat]:null),k=pointKind(t);
+  if(w.type!=='way'||!w.geometry||w.geometry.length<2||!/^(path|track)$/.test(t.highway||''))continue;
+  const sc=((t['mtb:scale']||'').match(/^\d/)||[''])[0];
+  m.set(w.id,{type:'Feature',properties:{id:w.id,hw:t.highway,sc,ms:t['mtb:scale']||'',wm:t.highway==='track'?TR:1,w:t.width||'',sf:t.surface||'',tt:t.tracktype||'',nm:t.name||'',bk:t.bicycle||'',mud:t.surface==='mud'?1:0,ov:t.obstacle==='vegetation'?1:0,fx:t.fixme||''},
+   geometry:{type:'LineString',coordinates:w.geometry.filter(p=>p).map(p=>[+p.lon.toFixed(6),+p.lat.toFixed(6)])}});
+  n++;if(!sc)nos++;if(t.bicycle==='no'||t.bicycle==='private')nb++;
+  if(t.fixme){const g=w.geometry[Math.floor(w.geometry.length/2)];if(g)pm.set('way'+w.id,{k:pointKind({fixme:t.fixme}),c:[+g.lon.toFixed(6),+g.lat.toFixed(6)],id:w.id,ty:'way',tg:pick(t)})}
+ }
+ OSMF=[...m.values()];OSMP=[...pm.values()];renderOsm();saveOsm();
+ if(!n)return toast('Näkymässä ei ole OSM:n polkuja tai trackeja',5000);
+ toast('Reitit haettu ('+n+'). Haetaan merkintöjä (2/2)…',35000);
+ let np=0;
+ try{
+  const dB=await overpass('[out:json][timeout:25];'+WQ+'->.w;(node(w.w)["barrier"="gate"];node(w.w)["obstacle"~"^(fallen_tree|vegetation)$"];node(w.w)["ford"="yes"];node(w.w)["fixme"];nwr["amenity"="shelter"]('+bb+'););out center;');
+  for(const w of dB.elements){
+   const t=w.tags||{},c=w.type==='node'?[w.lon,w.lat]:(w.center?[w.center.lon,w.center.lat]:null),k=pointKind(t);
    if(!c||!k)continue;
    pm.set(w.type+w.id,{k,c:[+c[0].toFixed(6),+c[1].toFixed(6)],id:w.id,ty:w.type,tg:pick(t)});np++;
   }
- }
- OSMF=[...m.values()];OSMP=[...pm.values()];renderOsm();
- try{localStorage.setItem('osmdata',JSON.stringify(OSMF));localStorage.setItem('osmpts',JSON.stringify(OSMP))}catch(e){toast('OSM-data ei mahdu muistiin ja katoaa sivun uudelleenlatauksessa',6000)}
+  OSMP=[...pm.values()];renderOsm();saveOsm();
+ }catch(e){return toast('Reitit haettu ('+n+'), mutta merkintöjen haku epäonnistui: '+e.message,10000)}
  toast('OSM: '+n+' reittiä ('+nos+' ilman mtb:scale, '+nb+' pyöräkielto), '+np+' merkintää',8000);
 }
 $('fetchOsm').onclick=()=>{$('menu').close();fetchOsm()};
@@ -476,6 +529,28 @@ $('tcClear').onclick=async()=>{
 };
 $('tmax').value=String(TMAX);
 $('tmax').onchange=e=>{TMAX=+e.target.value;localStorage.setItem('tmax',TMAX);swMsg({max:TMAX})};
+// --- POI edit / delete, map dialog, track ratio ---
+let peIdx=-1,delPoi=null;
+function openPoiEdit(i){
+ const p=S.pois[i];if(!p)return;peIdx=i;
+ const ic=ICON[p.type]||ICON.custom;
+ $('peTitle').textContent=ic.label+' · '+new Date(p.t).toLocaleString('fi-FI',{dateStyle:'short',timeStyle:'short'});
+ $('peType').value=ICON[p.type]?p.type:'custom';$('peName').value=p.name||'';
+ $('poiEdit').showModal();
+}
+$('peSave').onclick=()=>{const p=S.pois[peIdx];if(!p)return;p.type=$('peType').value;p.name=$('peName').value.trim();$('poiEdit').close();drawMarkers();render()};
+$('peMove').onclick=()=>{const p=S.pois[peIdx];if(!p)return;const c=map.getCenter();p.c=[c.lng,c.lat];$('poiEdit').close();drawMarkers();render();toast('POI siirretty kartan keskipisteeseen')};
+$('peDel').onclick=()=>{
+ const p=S.pois[peIdx];if(!p)return;
+ delPoi={p,i:peIdx};S.pois.splice(peIdx,1);$('poiEdit').close();drawMarkers();render();
+ $('undo').hidden=false;clearTimeout(window._undoT);window._undoT=setTimeout(()=>{$('undo').hidden=true;delPoi=null},8000);
+};
+$('undo').onclick=()=>{if(!delPoi)return;S.pois.splice(delPoi.i,0,delPoi.p);delPoi=null;$('undo').hidden=true;drawMarkers();render()};
+$('peClose').onclick=()=>$('poiEdit').close();
+$('mapBtn').onclick=()=>$('mapdlg').showModal();
+$('closeMap').onclick=()=>$('mapdlg').close();
+$('tr').value=String(TR);
+$('tr').onchange=e=>{TR=+e.target.value;localStorage.setItem('tr',TR);OSMF.forEach(f=>{f.properties.wm=f.properties.hw==='track'?TR:1});render();renderOsm()};
 // --- Autosave ---
 function save(){try{localStorage.setItem('proj',JSON.stringify({S:{...S,rec:false},name:$('name').value}))}catch(e){}}
 try{const r=JSON.parse(LS('proj')||'null');if(r&&r.S.track.length){Object.assign(S,r.S,{rec:false,wet:false,veg:false,pit:false});$('name').value=r.name||'';map.on('load',()=>{drawMarkers();toast('Edellinen projekti palautettu')})}}catch(e){}
