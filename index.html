@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="fi"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<title>Maastokartoitus V1.21</title>
+<title>Maastokartoitus V1.22</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.css">
 <style>
 html,body{margin:0;height:100%;font-family:system-ui,sans-serif;overflow:hidden}
@@ -85,7 +85,7 @@ dialog input{font-size:16px;padding:8px}
  <button id="clearOsm">Tyhjennä OSM-data</button>
  <button id="settingsBtn">Asetukset</button>
  <button id="clearAll">Uusi projekti (tyhjennä)</button>
- <div style="text-align:center;font:11px system-ui;color:#666">Maastokartoitus V1.21</div>
+ <div style="text-align:center;font:11px system-ui;color:#666">Maastokartoitus V1.22</div>
  <button id="close">Sulje</button>
 </dialog>
 <dialog id="mapdlg">
@@ -422,60 +422,65 @@ function renderOsm(){
  if(!map.getSource('osm'))return;
  map.getSource('osm').setData({type:'FeatureCollection',features:OSMF});drawOsmMarkers();applyOsmOp();
 }
-const OVP=['https://overpass-api.de/api/interpreter','https://overpass.kumi.systems/api/interpreter','https://overpass.private.coffee/api/interpreter'];
+const OVP=[['https://overpass-api.de/api/interpreter',120000],['https://overpass.private.coffee/api/interpreter',90000]];
+let ovHost='',ovCool=0;
 async function overpass(q){
- const ctls=[],errs=[];
- const one=ep=>{
-  const ctl=new AbortController();ctls.push(ctl);
-  const timer=setTimeout(()=>ctl.abort(),30000);
-  return fetch(ep,{method:'POST',body:'data='+encodeURIComponent(q),headers:{'Content-Type':'application/x-www-form-urlencoded'},signal:ctl.signal})
-   .then(async res=>{
-    if(!res.ok)throw new Error('HTTP '+res.status);
-    const j=await res.json();
-    if(!j||!Array.isArray(j.elements))throw new Error('virheellinen vastaus');
-    if(j.remark&&!j.elements.length)throw new Error(String(j.remark).slice(0,60));
-    return j;
-   })
-   .catch(e=>{errs.push(new URL(ep).hostname+': '+(ctl.signal.aborted?'ei vastausta 30 s kuluessa':e.message));throw e})
-   .finally(()=>clearTimeout(timer));
- };
- try{const j=await Promise.any(OVP.map(one));ctls.forEach(c=>c.abort());return j}
- catch(e){throw new Error(errs.join('; ')||e.message)}
+ const errs=[];
+ for(const [ep,tmo] of OVP){
+  const host=new URL(ep).hostname;ovHost=host;
+  const ctl=new AbortController(),timer=setTimeout(()=>ctl.abort(),tmo);
+  try{
+   const res=await fetch(ep,{method:'POST',body:'data='+encodeURIComponent(q),headers:{'Content-Type':'application/x-www-form-urlencoded'},signal:ctl.signal});
+   if(!res.ok)throw new Error('HTTP '+res.status);
+   const j=await res.json();
+   if(!j||!Array.isArray(j.elements))throw new Error('virheellinen vastaus');
+   if(j.remark&&!j.elements.length)throw new Error(String(j.remark).slice(0,80));
+   clearTimeout(timer);j._host=host;return j;
+  }catch(e){
+   clearTimeout(timer);
+   errs.push(host+': '+(ctl.signal.aborted?'ei vastausta '+Math.round(tmo/1000)+' s kuluessa':e.message));
+  }
+ }
+ throw new Error(errs.join('; '));
 }
 function saveOsm(){try{localStorage.setItem('osmdata',JSON.stringify(OSMF));localStorage.setItem('osmpts',JSON.stringify(OSMP))}catch(e){toast('OSM-data ei mahdu muistiin ja katoaa sivun uudelleenlatauksessa',6000)}}
 async function fetchOsm(){
- try{await fetchOsmRun()}catch(e){toast('OSM-haku epäonnistui: '+e.message,10000)}
+ const wait=Math.ceil((ovCool-Date.now())/1000);
+ if(wait>0)return toast('Odota '+wait+' s ennen uutta hakua (palvelimen rajoitukset)',4000);
+ if(map.getZoom()<12)return toast('Zoomaa lähemmäs (vähintään taso 12) ennen hakua',4000);
+ const t0=Date.now();
+ const tick=setInterval(()=>toast('Haetaan OSM-tietoja… '+Math.round((Date.now()-t0)/1000)+' s ('+ovHost+')',3000),1000);
+ try{await fetchOsmRun();ovCool=Date.now()+30000}
+ catch(e){ovCool=Date.now()+60000;toast('OSM-haku epäonnistui: '+e.message+' (odota minuutti ennen uutta yritystä)',12000)}
+ finally{clearInterval(tick)}
 }
 async function fetchOsmRun(){
- if(map.getZoom()<12)return toast('Zoomaa lähemmäs (vähintään taso 12) ennen hakua',4000);
  const b=map.getBounds(),bb=[b.getSouth(),b.getWest(),b.getNorth(),b.getEast()].map(v=>v.toFixed(5)).join(',');
- const WQ='way["highway"~"^(path|track)$"]('+bb+')';
- toast('Haetaan reittejä (1/2)…',35000);
- const dA=await overpass('[out:json][timeout:25];'+WQ+';out geom;');
- const m=new Map(OSMF.map(f=>[f.properties.id,f])),pm=new Map(OSMP.map(p=>[p.ty+p.id,p]));let n=0,nos=0,nb=0;
- for(const w of dA.elements){
+ const q='[out:json][timeout:60];(way["highway"="path"]('+bb+');way["highway"="track"]('+bb+');)->.w;.w out geom qt;'
+  +'(node(w.w)["barrier"="gate"];node(w.w)["obstacle"="fallen_tree"];node(w.w)["obstacle"="vegetation"];node(w.w)["ford"="yes"];node(w.w)["fixme"];nwr["amenity"="shelter"]('+bb+'););out center qt;';
+ const j=await overpass(q);
+ const m=new Map(OSMF.map(f=>[f.properties.id,f])),pm=new Map(OSMP.map(p=>[p.ty+p.id,p]));let n=0,nos=0,nb=0,np=0;
+ for(const w of j.elements){
   const t=w.tags||{};
-  if(w.type!=='way'||!w.geometry||w.geometry.length<2||!/^(path|track)$/.test(t.highway||''))continue;
-  const sc=((t['mtb:scale']||'').match(/^\d/)||[''])[0];
-  m.set(w.id,{type:'Feature',properties:{id:w.id,hw:t.highway,sc,ms:t['mtb:scale']||'',wm:t.highway==='track'?TR:1,w:t.width||'',sf:t.surface||'',tt:t.tracktype||'',nm:t.name||'',bk:t.bicycle||'',mud:t.surface==='mud'?1:0,ov:t.obstacle==='vegetation'?1:0,fx:t.fixme||''},
-   geometry:{type:'LineString',coordinates:w.geometry.filter(p=>p).map(p=>[+p.lon.toFixed(6),+p.lat.toFixed(6)])}});
-  n++;if(!sc)nos++;if(t.bicycle==='no'||t.bicycle==='private')nb++;
-  if(t.fixme){const g=w.geometry[Math.floor(w.geometry.length/2)];if(g)pm.set('way'+w.id,{k:pointKind({fixme:t.fixme}),c:[+g.lon.toFixed(6),+g.lat.toFixed(6)],id:w.id,ty:'way',tg:pick(t)})}
- }
- OSMF=[...m.values()];OSMP=[...pm.values()];renderOsm();saveOsm();
- if(!n)return toast('Näkymässä ei ole OSM:n polkuja tai trackeja',5000);
- toast('Reitit haettu ('+n+'). Haetaan merkintöjä (2/2)…',35000);
- let np=0;
- try{
-  const dB=await overpass('[out:json][timeout:25];'+WQ+'->.w;(node(w.w)["barrier"="gate"];node(w.w)["obstacle"~"^(fallen_tree|vegetation)$"];node(w.w)["ford"="yes"];node(w.w)["fixme"];nwr["amenity"="shelter"]('+bb+'););out center;');
-  for(const w of dB.elements){
-   const t=w.tags||{},c=w.type==='node'?[w.lon,w.lat]:(w.center?[w.center.lon,w.center.lat]:null),k=pointKind(t);
+  if(w.type==='way'&&w.geometry&&w.geometry.length>1&&/^(path|track)$/.test(t.highway||'')){
+   const sc=((t['mtb:scale']||'').match(/^\d/)||[''])[0];
+   m.set(w.id,{type:'Feature',properties:{id:w.id,hw:t.highway,sc,ms:t['mtb:scale']||'',wm:t.highway==='track'?TR:1,w:t.width||'',sf:t.surface||'',tt:t.tracktype||'',nm:t.name||'',bk:t.bicycle||'',mud:t.surface==='mud'?1:0,ov:t.obstacle==='vegetation'?1:0,fx:t.fixme||''},
+    geometry:{type:'LineString',coordinates:w.geometry.filter(p=>p).map(p=>[+p.lon.toFixed(6),+p.lat.toFixed(6)])}});
+   n++;if(!sc)nos++;if(t.bicycle==='no'||t.bicycle==='private')nb++;
+   if(t.fixme){const g=w.geometry[Math.floor(w.geometry.length/2)];if(g)pm.set('way'+w.id,{k:pointKind({fixme:t.fixme}),c:[+g.lon.toFixed(6),+g.lat.toFixed(6)],id:w.id,ty:'way',tg:pick(t)})}
+  }else{
+   const c=w.type==='node'?[w.lon,w.lat]:(w.center?[w.center.lon,w.center.lat]:null),k=pointKind(t);
    if(!c||!k)continue;
    pm.set(w.type+w.id,{k,c:[+c[0].toFixed(6),+c[1].toFixed(6)],id:w.id,ty:w.type,tg:pick(t)});np++;
   }
-  OSMP=[...pm.values()];renderOsm();saveOsm();
- }catch(e){return toast('Reitit haettu ('+n+'), mutta merkintöjen haku epäonnistui: '+e.message,10000)}
- toast('OSM: '+n+' reittiä ('+nos+' ilman mtb:scale, '+nb+' pyöräkielto), '+np+' merkintää',8000);
+ }
+ OSMF=[...m.values()];OSMP=[...pm.values()];renderOsm();saveOsm();
+ let age='';
+ const ts=j.osm3s&&j.osm3s.timestamp_osm_base;
+ if(ts){const d=new Date(ts);age=' Data: '+d.toLocaleString('fi-FI',{dateStyle:'short',timeStyle:'short'})+(Date.now()-d>864e5?' ⚠ yli vuorokauden vanhaa':'');}
+ const part=j.remark?' (osittainen vastaus: '+String(j.remark).slice(0,40)+')':'';
+ if(!n)return toast('Näkymässä ei ole OSM:n polkuja tai trackeja.'+age,6000);
+ toast('OSM: '+n+' reittiä ('+nos+' ilman mtb:scale, '+nb+' pyöräkielto), '+np+' merkintää.'+age+' ['+j._host+']'+part,10000);
 }
 $('fetchOsm').onclick=()=>{$('menu').close();fetchOsm()};
 $('clearOsm').onclick=()=>{OSMF=[];OSMP=[];renderOsm();try{localStorage.removeItem('osmdata');localStorage.removeItem('osmpts')}catch(e){}$('menu').close();toast('OSM-data tyhjennetty')};
