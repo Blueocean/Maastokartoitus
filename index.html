@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="fi"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<title>Maastokartoitus V1.22</title>
+<title>Maastokartoitus V1.23</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/maplibre-gl/4.7.1/maplibre-gl.css">
 <style>
 html,body{margin:0;height:100%;font-family:system-ui,sans-serif;overflow:hidden}
@@ -9,7 +9,16 @@ html,body{margin:0;height:100%;font-family:system-ui,sans-serif;overflow:hidden}
 #top{position:absolute;top:0;left:0;right:0;display:flex;gap:4px;padding:4px;z-index:5}#top button{min-width:48px}
 #hud{position:absolute;left:6px;top:56px;z-index:5;display:flex;flex-direction:column;gap:3px;align-items:flex-start;pointer-events:none}
 #hud>div{background:rgba(255,255,255,.75);padding:1px 7px;border-radius:6px;white-space:nowrap}
-#dist,#spd{font:700 18px system-ui}
+#dist,#spd,#hr{font:700 18px system-ui}
+#hr{color:#c62828}
+#hr[hidden]{display:none}
+#rec{margin-left:auto}
+body.rec #name{display:none}
+body.rec #hud{top:2px;left:8px;gap:0}
+body.rec #hud>div{background:none;padding:0}
+body.rec #dist,body.rec #spd{font:800 38px/1.1 system-ui;color:#111;text-shadow:-2px -2px 0 #fff,2px -2px 0 #fff,-2px 2px 0 #fff,2px 2px 0 #fff,0 -2px 0 #fff,0 2px 0 #fff,-2px 0 0 #fff,2px 0 0 #fff}
+body.rec #hr{font:800 30px/1.1 system-ui;color:#c62828;text-shadow:-2px -2px 0 #fff,2px -2px 0 #fff,-2px 2px 0 #fff,2px 2px 0 #fff,0 -2px 0 #fff,0 2px 0 #fff,-2px 0 0 #fff,2px 0 0 #fff}
+body.rec #hud>div#acc{background:rgba(255,255,255,.75);padding:1px 7px;border-radius:6px;margin-top:3px}
 #top input{flex:1;min-width:0;font-size:14px;padding:6px;border:1px solid #888;border-radius:8px}
 button{font:600 14px system-ui;border:1.5px solid #333;background:#fff;border-radius:8px;min-height:40px;padding:0 4px}
 button.on{color:#fff;background:#222}
@@ -21,6 +30,10 @@ button.on{color:#fff;background:#222}
 #wet{color:#1f6fd1}#veg{color:#2e9e44}
 #wet.on{background:#1f6fd1;border-color:#1f6fd1;color:#fff}#veg.on{background:#2e9e44;border-color:#2e9e44;color:#fff}
 #panel button svg{width:24px;height:24px;display:block;margin:auto}
+#panel{transition:transform .2s}
+#panel.hide{transform:translateX(74px)}
+#ptab{position:absolute;right:64px;top:50%;margin-top:-32px;width:22px;height:64px;min-width:0;min-height:0;z-index:6;padding:0;font-size:20px;border-radius:10px 0 0 10px;background:rgba(255,255,255,.6);transition:right .2s}
+#ptab.hide{right:0}
 #follow{position:absolute;left:6px;bottom:124px;z-index:5;width:46px;height:46px;font-size:20px}
 #mapBtn{position:absolute;left:6px;bottom:72px;z-index:5;width:46px;height:46px;font-size:20px}
 #fs{position:absolute;left:6px;bottom:20px;z-index:5;width:46px;height:46px;font-size:20px}
@@ -51,6 +64,7 @@ dialog input{font-size:16px;padding:8px}
 <div id="map"></div><div id="cross"></div>
 <div id="top"><input id="name" placeholder="Projektin nimi"><button id="rec">● REC</button><button id="menuBtn">☰</button></div>
 <button id="follow" class="on">◎</button><button id="mapBtn" title="Kartta">🗺</button><button id="fs">⛶</button>
+<button id="ptab" aria-label="Piilota tai näytä painikkeet">›</button>
 <div id="panel">
  <button id="hwPath" class="on">PATH</button><button id="hwTrack">TRACK</button>
  <button data-s="0">S0</button><button data-s="1">S1</button>
@@ -60,7 +74,7 @@ dialog input{font-size:16px;padding:8px}
  <button id="pit" style="font-size:11px">PITKOS</button>
  <button id="poiBtn" style="font-size:12px">📍POI</button>
 </div>
-<div id="hud"><div id="dist">0.00 km</div><div id="spd">– km/h</div><div id="acc">GPS: haetaan…</div></div>
+<div id="hud"><div id="dist">0.00 km</div><div id="spd">– km/h</div><div id="hr" hidden>♥ –</div><div id="acc">GPS: haetaan…</div></div>
 <div id="poiSheet" hidden><div id="poiWhere" style="font:700 13px system-ui;text-align:center"></div><div id="poiList" style="display:flex;flex-direction:column;gap:6px"></div><div style="display:flex;gap:6px"><input id="poiName" placeholder="Muu POI, esim. Laavu"><button id="poiSave" style="min-width:52px;text-align:center">OK</button></div><button id="poiCancel">Peruuta</button></div>
 <button id="undo" hidden>Kumoa poisto</button>
 <dialog id="poiEdit">
@@ -85,7 +99,7 @@ dialog input{font-size:16px;padding:8px}
  <button id="clearOsm">Tyhjennä OSM-data</button>
  <button id="settingsBtn">Asetukset</button>
  <button id="clearAll">Uusi projekti (tyhjennä)</button>
- <div style="text-align:center;font:11px system-ui;color:#666">Maastokartoitus V1.22</div>
+ <div style="text-align:center;font:11px system-ui;color:#666">Maastokartoitus V1.23</div>
  <button id="close">Sulje</button>
 </dialog>
 <dialog id="mapdlg">
@@ -106,6 +120,13 @@ dialog input{font-size:16px;padding:8px}
  <select id="tr" style="font-size:16px;padding:8px;width:100%"><option value="1.5">1,5×</option><option value="2">2×</option><option value="2.5">2,5×</option><option value="3">3×</option></select>
  <label style="display:block;margin-top:8px">OSM-reittien näkyvyys: <b id="opv"></b></label>
  <input type="range" id="op" min="0" max="1" step="0.1">
+ <div style="font-weight:700;margin-top:12px">Sykevyö (kokeilu)</div>
+ <button id="hrBtn">Yhdistä sykevyö</button>
+ <label><input type="checkbox" id="hrsave" style="display:inline;width:auto"> Tallenna syke jokaiseen jälkipisteeseen</label>
+ <label style="display:block;margin-top:4px"><input type="checkbox" id="hrcol" style="display:inline;width:auto"> Väritä GPS-jälki sykealueen mukaan</label>
+ <label style="display:block;margin-top:4px">Maksimisyke (lyöntiä/min)</label>
+ <input id="maxhr" type="number" min="120" max="230" inputmode="numeric">
+ <div style="font:11px system-ui;color:#555">Alueet: alle 50 % harmaa, 50–60 sininen, 60–70 vihreä, 70–80 keltainen, 80–90 oranssi, yli 90 % punainen. Väritys vaatii, että syke tallennetaan pisteisiin.</div>
  <div style="font-weight:700;margin-top:12px">Offline-karttamuisti</div>
  <div id="tcInfo" style="font:12px system-ui;color:#444;margin:4px 0">Lasketaan…</div>
  <button id="tcRefresh">Päivitä näkymän tiilet</button>
@@ -126,6 +147,9 @@ const DASH={'0':[8,1],'1':[6,1.5],'2':[4,2],'3':[3,3],'4':[1.5,4],'':[1,0]};
 const W={path:0.3,track:3};
 let LW=parseFloat(localStorage.getItem('lw'))||1;
 let TR=parseFloat(localStorage.getItem('tr'))||2;
+let HRSAVE=localStorage.getItem('hrsave')==='1',HRCOL=localStorage.getItem('hrcol')==='1',MAXHR=parseInt(localStorage.getItem('maxhr'))||185,HR=null,hrT=0;
+function hrNow(){return (HRSAVE&&HR!=null&&Date.now()-hrT<10000)?HR:undefined}
+function hrZoneColor(h){if(h==null)return '#9e9e9e';const q=h/MAXHR;return q<.5?'#bdbdbd':q<.6?'#2196f3':q<.7?'#43a047':q<.8?'#fdd835':q<.9?'#fb8c00':'#e53935'}
 let TS=256;
 const getTS=k=>{const v=parseInt(localStorage.getItem('ts:'+k));if(v)return v;if(k==='mmlorto'||k==='kapsiorto')return 256;return parseInt(localStorage.getItem('ts'))||256};
 const tw=m=>['interpolate',['linear'],['zoom'],12,['*',1.5*m,['get','wm']],20,['*',4*m,['get','wm']]];
@@ -185,7 +209,7 @@ const pw=(a,b)=>['interpolate',['linear'],['zoom'],12,a,20,b];
  map.addLayer({id:'veg',type:'line',source:'veg',layout:{'line-cap':'round'},paint:{'line-color':'#1b8a2f','line-width':3.5,'line-dasharray':[0.1,2],'line-offset':off}});
  map.addLayer({id:'poi',type:'circle',source:'poi',paint:{'circle-radius':7,'circle-color':['match',['get','type'],'fallen_tree','#f57c00','bridge','#8d6e63','ditch','#1f6fd1','#555555'],'circle-stroke-color':'#fff','circle-stroke-width':2}});
  map.addLayer({id:'refpts',type:'circle',source:'refpts',paint:{'circle-radius':6,'circle-color':'#d81b60','circle-stroke-color':'#fff','circle-stroke-width':2}});
- applySides();render();renderRef();renderOsm();
+ applySides();applyGpsStyle();render();renderRef();renderOsm();
 });
 function applySides(){ // positive offset = right
  const sw=$('swap').checked;
@@ -194,10 +218,23 @@ function applySides(){ // positive offset = right
 }
 const line=(c,p)=>({type:'Feature',properties:p,geometry:{type:'LineString',coordinates:c}});
 function render(){
- showDist();
+ showDist();document.body.classList.toggle('rec',!!S.rec);
  if(!map.getSource('trail'))return;
- const gs=[];let cs=[];S.track.forEach(p=>{if(p.g&&cs.length){gs.push(cs);cs=[]}cs.push([p.lon,p.lat])});gs.push(cs);
- map.getSource('gps').setData({type:'FeatureCollection',features:gs.filter(x=>x.length>1).map(x=>line(x,{}))});
+ let gf=[];
+ if(HRCOL){
+  let run=null,prev=null;
+  S.track.forEach(p=>{
+   const col=hrZoneColor(p.hr),pt=[p.lon,p.lat];
+   if(!run||p.g||col!==run.col){if(run&&run.c.length>1)gf.push(line(run.c,{c:run.col}));run={col,c:(!p.g&&prev)?[prev,pt]:[pt]}}
+   else run.c.push(pt);
+   prev=pt;
+  });
+  if(run&&run.c.length>1)gf.push(line(run.c,{c:run.col}));
+ }else{
+  const gs=[];let cs=[];S.track.forEach(p=>{if(p.g&&cs.length){gs.push(cs);cs=[]}cs.push([p.lon,p.lat])});gs.push(cs);
+  gf=gs.filter(x=>x.length>1).map(x=>line(x,{}));
+ }
+ map.getSource('gps').setData({type:'FeatureCollection',features:gf});
  map.getSource('trail').setData({type:'FeatureCollection',features:S.trail.filter(s=>s.c.length>1).map(s=>line(s.c,{sc:s.scale,wm:s.hw==='track'?TR:1,hw:s.hw}))});
  map.getSource('wet').setData({type:'FeatureCollection',features:S.wetS.filter(s=>s.c.length>1).map(s=>line(s.c,{}))});
   map.getSource('pit').setData({type:'FeatureCollection',features:S.pitS.filter(s=>s.c.length>1).map(s=>line(s.c,{}))});
@@ -239,7 +276,7 @@ navigator.geolocation.watchPosition(p=>{
  if(follow)map.easeTo({center:c,zoom:first?Math.max(map.getZoom(),16):map.getZoom(),duration:500});first=false;
  if(S.rec){
   const dt=S.track.length?p.timestamp-cur(S.track).t:0,gap=dt>GAP;
-  S.track.push({lon:c[0],lat:c[1],ele:p.coords.altitude,t:p.timestamp,g:gap||undefined});
+  S.track.push({lon:c[0],lat:c[1],ele:p.coords.altitude,t:p.timestamp,g:gap||undefined,hr:hrNow()});
   if(gap){startTrail();if(S.wet)S.wetS.push({c:[c]});if(S.veg)S.vegS.push({c:[c]});if(S.pit)S.pitS.push({c:[c]});toast('Paikannus katkesi '+Math.round(dt/1000)+' s, jäljessä on katkos',4000)}
   else{cur(S.trail).c.push(c);if(S.wet)cur(S.wetS).c.push(c);if(S.veg)cur(S.vegS).c.push(c);if(S.pit)cur(S.pitS).c.push(c)}
   addDist(c,gap);
@@ -312,9 +349,9 @@ function dl(blob,name){const a=document.createElement('a');a.href=URL.createObje
 function tagsOf(s){return `highway=${s.hw}; width=${W[s.hw]}`+(s.scale!==''?`; mtb:scale=${s.scale}`:'')}
 $('expGpx').onclick=()=>{
  const n=esc($('name').value||fname());const seg=(c,name,desc)=>`<trk><name>${esc(name)}</name><desc>${esc(desc)}</desc><trkseg>${c.map(p=>`<trkpt lat="${p[1]}" lon="${p[0]}"/>`).join('')}</trkseg></trk>`;
- let x=`<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="Maastokartoitus" xmlns="http://www.topografix.com/GPX/1/1"><metadata><name>${n}</name></metadata>\n`;
+ let x=`<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="Maastokartoitus" xmlns="http://www.topografix.com/GPX/1/1" xmlns:gpxtpx="http://www.garmin.com/xmlschemas/TrackPointExtension/v1"><metadata><name>${n}</name></metadata>\n`;
  S.pois.forEach(p=>x+=`<wpt lat="${p.c[1]}" lon="${p.c[0]}"><time>${new Date(p.t).toISOString()}</time><name>${esc(p.name||(ICON[p.type]||ICON.custom).label)}</name><type>${esc(p.type)}</type></wpt>\n`);
- x+=`<trk><name>${n}</name><trkseg>${S.track.map(p=>(p.g?'</trkseg><trkseg>':'')+`<trkpt lat="${p.lat}" lon="${p.lon}">${p.ele!=null?`<ele>${p.ele}</ele>`:''}<time>${new Date(p.t).toISOString()}</time></trkpt>`).join('')}</trkseg></trk>\n`;
+ x+=`<trk><name>${n}</name><trkseg>${S.track.map(p=>(p.g?'</trkseg><trkseg>':'')+`<trkpt lat="${p.lat}" lon="${p.lon}">${p.ele!=null?`<ele>${p.ele}</ele>`:''}<time>${new Date(p.t).toISOString()}</time>${p.hr!=null?'<extensions><gpxtpx:TrackPointExtension><gpxtpx:hr>'+p.hr+'</gpxtpx:hr></gpxtpx:TrackPointExtension></extensions>':''}</trkpt>`).join('')}</trkseg></trk>\n`;
  S.trail.forEach((s,i)=>s.c.length>1&&(x+=seg(s.c,`${n} polku ${i+1}`,tagsOf(s))+'\n'));
  S.wetS.forEach((s,i)=>s.c.length>1&&(x+=seg(s.c,`${n} wet ${i+1}`,'wet=yes')+'\n'));
  S.vegS.forEach((s,i)=>s.c.length>1&&(x+=seg(s.c,`${n} vegetation ${i+1}`,'vegetation (kasvillisuus)')+'\n'));
@@ -327,7 +364,7 @@ function geo(){
  S.vegS.forEach(s=>s.c.length>1&&f.push(line(s.c,{kind:'veg'})));
  S.pitS.forEach(s=>s.c.length>1&&f.push(line(s.c,{kind:'pit',bridge:'boardwalk',surface:'wood'})));
  S.pois.forEach(p=>f.push({type:'Feature',properties:{kind:'poi',type:p.type,name:p.name||'',time:new Date(p.t).toISOString()},geometry:{type:'Point',coordinates:p.c}}));
- f.push(line(S.track.map(p=>[p.lon,p.lat]),{kind:'gps',times:S.track.map(p=>p.t),gaps:S.track.map((p,i)=>p.g?i:-1).filter(i=>i>=0)}));
+ f.push(line(S.track.map(p=>[p.lon,p.lat]),{kind:'gps',times:S.track.map(p=>p.t),gaps:S.track.map((p,i)=>p.g?i:-1).filter(i=>i>=0),...(S.track.some(p=>p.hr!=null)?{hr:S.track.map(p=>p.hr==null?null:p.hr)}:{})}));
  return {type:'FeatureCollection',name:$('name').value,features:f};
 }
 $('expJson').onclick=()=>{dl(new Blob([JSON.stringify(geo())],{type:'application/geo+json'}),fname()+'.geojson');$('menu').close()};
@@ -341,7 +378,7 @@ $('file').onchange=async e=>{
   if(p.kind==='trail')S.trail.push({hw:p.highway,scale:p['mtb:scale']??'',c});
   else if(p.kind==='wet')S.wetS.push({c});else if(p.kind==='veg')S.vegS.push({c});else if(p.kind==='pit')S.pitS.push({c});
   else if(p.kind==='poi')S.pois.push({c,type:p.type,name:p.name||'',t:Date.parse(p.time)});
-  else if(p.kind==='gps')S.track=c.map((q,i)=>({lon:q[0],lat:q[1],ele:null,t:(p.times||[])[i]||0,g:(p.gaps||[]).includes(i)||undefined}))}
+  else if(p.kind==='gps')S.track=c.map((q,i)=>({lon:q[0],lat:q[1],ele:null,t:(p.times||[])[i]||0,g:(p.gaps||[]).includes(i)||undefined,hr:(p.hr&&p.hr[i]!=null)?p.hr[i]:undefined}))}
  S.dist=0;S.lastD=null;S.track.forEach(q=>addDist([q.lon,q.lat],q.g));
  drawMarkers();render();$('menu').close();
  if(S.track.length)map.fitBounds(S.track.reduce((b,p)=>b.extend([p.lon,p.lat]),new maplibregl.LngLatBounds()),{padding:40});
@@ -556,6 +593,53 @@ $('mapBtn').onclick=()=>$('mapdlg').showModal();
 $('closeMap').onclick=()=>$('mapdlg').close();
 $('tr').value=String(TR);
 $('tr').onchange=e=>{TR=+e.target.value;localStorage.setItem('tr',TR);OSMF.forEach(f=>{f.properties.wm=f.properties.hw==='track'?TR:1});render();renderOsm()};
+// --- Heart rate (Web Bluetooth) + panel tab + GPS track style ---
+let hrDev=null,hrChar=null,hrWant=false,hrRetry=0,hrTimer=null;
+function applyGpsStyle(){
+ if(!map.getLayer('gps'))return;
+ map.setPaintProperty('gps','line-color',HRCOL?['coalesce',['get','c'],'#9e9e9e']:'#666666');
+ map.setPaintProperty('gps','line-width',HRCOL?['interpolate',['linear'],['zoom'],12,4,20,9]:1);
+ map.setPaintProperty('gps','line-opacity',HRCOL?0.9:0.6);
+}
+function showHr(){
+ $('hr').hidden=!hrWant;$('hr').textContent='♥ '+(HR==null?'–':HR);
+ $('hrBtn').textContent=hrWant?'Katkaise sykevyö':'Yhdistä sykevyö';
+}
+function hrParse(ev){const v=ev.target.value,f=v.getUint8(0);HR=(f&1)?v.getUint16(1,true):v.getUint8(1);hrT=Date.now();showHr()}
+async function hrOpen(){
+ const srv=await hrDev.gatt.connect();
+ const svc=await srv.getPrimaryService('heart_rate');
+ hrChar=await svc.getCharacteristic('heart_rate_measurement');
+ hrChar.addEventListener('characteristicvaluechanged',hrParse);
+ await hrChar.startNotifications();
+ hrRetry=0;toast('Sykevyö yhdistetty',2500);showHr();
+}
+function hrSchedule(){
+ clearTimeout(hrTimer);if(!hrWant)return;
+ hrTimer=setTimeout(async()=>{try{await hrOpen()}catch(e){hrRetry++;hrSchedule()}},Math.min(1500*(hrRetry+1),15000));
+}
+function hrLost(){HR=null;showHr();if(hrWant){toast('Sykevyö katkesi, yritetään uudelleen…',3000);hrSchedule()}}
+async function hrConnect(){
+ if(!navigator.bluetooth)return toast('Web Bluetooth ei ole käytössä tässä selaimessa (kokeile Chromea)',7000);
+ try{
+  hrDev=await navigator.bluetooth.requestDevice({filters:[{services:['heart_rate']}]});
+  hrDev.addEventListener('gattserverdisconnected',hrLost);
+  hrWant=true;showHr();
+  await hrOpen();
+ }catch(e){
+  hrWant=false;showHr();
+  if(e&&e.name!=='NotFoundError')toast('Sykevyön yhdistys epäonnistui: '+(e.message||e),7000);
+ }
+}
+function hrStop(){hrWant=false;clearTimeout(hrTimer);try{if(hrDev&&hrDev.gatt.connected)hrDev.gatt.disconnect()}catch(e){}HR=null;showHr()}
+$('hrBtn').onclick=()=>hrWant?hrStop():hrConnect();
+setInterval(()=>{if(HR!=null&&Date.now()-hrT>8000){HR=null;showHr()}},2000);
+$('hrsave').checked=HRSAVE;$('hrsave').onchange=()=>{HRSAVE=$('hrsave').checked;localStorage.setItem('hrsave',HRSAVE?'1':'0')};
+$('hrcol').checked=HRCOL;$('hrcol').onchange=()=>{HRCOL=$('hrcol').checked;localStorage.setItem('hrcol',HRCOL?'1':'0');if(HRCOL&&!HRSAVE)toast('Väritys vaatii, että syke tallennetaan pisteisiin (ruksi yllä)',6000);applyGpsStyle();render()};
+$('maxhr').value=MAXHR;$('maxhr').onchange=()=>{MAXHR=parseInt($('maxhr').value)||185;localStorage.setItem('maxhr',MAXHR);render()};
+function setPanelHidden(h){$('panel').classList.toggle('hide',h);$('ptab').classList.toggle('hide',h);$('ptab').textContent=h?'‹':'›';try{localStorage.setItem('phide',h?'1':'0')}catch(e){}}
+setPanelHidden(localStorage.getItem('phide')==='1');
+$('ptab').onclick=()=>setPanelHidden(!$('panel').classList.contains('hide'));
 // --- Autosave ---
 function save(){try{localStorage.setItem('proj',JSON.stringify({S:{...S,rec:false},name:$('name').value}))}catch(e){}}
 try{const r=JSON.parse(LS('proj')||'null');if(r&&r.S.track.length){Object.assign(S,r.S,{rec:false,wet:false,veg:false,pit:false});$('name').value=r.name||'';map.on('load',()=>{drawMarkers();toast('Edellinen projekti palautettu')})}}catch(e){}
